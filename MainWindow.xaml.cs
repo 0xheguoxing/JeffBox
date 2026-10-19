@@ -28,10 +28,6 @@ namespace TodoApp;
 public partial class MainWindow : Window
 {
     enum TodoFilter { All, Active, Done }
-    enum ToolTab { Todo, Md, Launch }
-
-    Dictionary<ToolTab, UIElement>? _toolViews;
-    ToolTab _tab = ToolTab.Todo;
 
     static readonly (string Name, string Color)[] Priorities =
     {
@@ -52,7 +48,7 @@ public partial class MainWindow : Window
     const int WM_HOTKEY = 0x0312;
     const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     const string RunValueName = "JeffBox";
-    const string AppVersion = "1.0.6";
+    const string AppVersion = "1.1.0";
 
     readonly ObservableCollection<TodoViewModel> _all = new();   // 仅根任务
     readonly ObservableCollection<TodoViewModel> _view = new();
@@ -76,6 +72,12 @@ public partial class MainWindow : Window
     readonly HashSet<Guid> _notified = new();
     readonly DispatcherTimer _bannerTimer = new() { Interval = TimeSpan.FromSeconds(8) };
     TodoViewModel? _bannerVm;
+
+    // 防抖 + 后台写盘：改动先标脏，静默 400ms 后在后台线程落盘；写盘期间的新改动会再补一轮。
+    // 快照在 UI 线程拍（状态一致），文件 IO 串行放后台，避免连点勾选框时反复全量同步写卡 UI
+    readonly DispatcherTimer _saveDebounce = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    bool _dirty;
+    Task _flushTask = Task.CompletedTask;
 
     // 详情浮层（实时编辑）
     TodoViewModel? _detailVm;
@@ -105,25 +107,6 @@ public partial class MainWindow : Window
         ListItems.ItemsSource = _view;
         _all.CollectionChanged += (_, _) => UpdateStats();
 
-        // 工具页常驻（视图已实例化），启动时恢复上次打开的工具
-        _toolViews = new Dictionary<ToolTab, UIElement>
-        {
-            [ToolTab.Todo] = TodoView,
-            [ToolTab.Md] = MdView,
-            [ToolTab.Launch] = LaunchView,
-        };
-        if (App.PendingOpenFile != null)
-        {
-            // 双击 .md / "打开方式" 直接启动本应用：进入笔记工具的阅读模式
-            var f = App.PendingOpenFile;
-            App.PendingOpenFile = null;
-            SwitchTool(ToolTab.Md);
-            _ = MdView.OpenExternalAsync(f);
-        }
-        else if (_settings.LastTool == "md") SwitchTool(ToolTab.Md);
-        else if (_settings.LastTool == "launch") SwitchTool(ToolTab.Launch);
-        ConsumeOpenRequest();
-
         HourCombo.ItemsSource = Enumerable.Range(0, 24).Select(i => $"{i:00}").ToList();
         MinCombo.ItemsSource = Enumerable.Range(0, 12).Select(i => $"{i * 5:00}").ToList();
         NewHourCombo.ItemsSource = HourCombo.ItemsSource;
@@ -132,7 +115,7 @@ public partial class MainWindow : Window
         NewMinCombo.SelectedIndex = 0;
         NewSubList.ItemsSource = _newSubs;
 
-        // 两个 Markdown 编辑框都支持 Ctrl+V 直接粘贴图片
+        // 详情编辑框支持 Ctrl+V 直接粘贴图片
         DataObject.AddPastingHandler(DetailNotesBox, OnNotesPaste);
         DataObject.AddPastingHandler(NewDetailsBox, OnNotesPaste);
 
@@ -145,6 +128,7 @@ public partial class MainWindow : Window
         };
         _reminderTimer.Tick += (_, _) => CheckReminders();
         _bannerTimer.Tick += (_, _) => HideBanner();
+        _saveDebounce.Tick += async (_, _) => await FlushNowAsync();
         // 窗口失活（点桌面/任务栏/Alt+Tab）时收起悬停预览，避免弹窗残留在最前
         Deactivated += (_, _) =>
         {
@@ -188,6 +172,20 @@ public partial class MainWindow : Window
 
         // 托盘 + 全局快捷键
         _hwnd = new WindowInteropHelper(this).Handle;
+        // Win11 云母背景：让桌面壁纸色调透出来（老系统设不上则保持实色）。
+        // 成功后重刷调色板，Bg 换成半透明色调
+        if (Backdrop.TryEnableMica(_hwnd))
+            Theme.Apply(_settings.Theme);
+        // Win11 圆角窗口：自定义 Chrome 用 GlassFrameThickness=-1 把 DWM 玻璃框延伸到客户区（云母需要），
+        // 系统不再自动圆角，需显式设 DWMWA_WINDOW_CORNER_PREFERENCE=ROUND。
+        // Win10 无此属性（返回错误码），静默忽略即可；最大化时系统自动不圆角
+        try
+        {
+            var corner = 2 /* DWMWCP_ROUND */;
+            _ = Native.DwmSetWindowAttribute(_hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */,
+                ref corner, sizeof(int));
+        }
+        catch { }
         _hookSource = HwndSource.FromHwnd(_hwnd);
         _hookSource?.AddHook(WndProc);
         DueDatePicker.DatePicked += DueDatePicker_DatePicked;
@@ -196,7 +194,6 @@ public partial class MainWindow : Window
         if (!App.StartMinimized) ApplyOpenPosition();
         // 启动即恢复最大化时 OnStateChanged 早于实际尺寸，补偿边距要等布局后再算
         SizeChanged += (_, _) => FixMaximizedMargin();
-        ApplyMdAssociation(_settings.MdAssociate);
         InitTray();
         InitHotkeyBoxes();
         ApplyAllHotkeys();
@@ -215,36 +212,19 @@ public partial class MainWindow : Window
         }
     }
 
-    bool _mdCloseConfirmed;
-
-    protected override async void OnClosing(CancelEventArgs e)
+    protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
         SaveWindowBounds();
         if (_forceExit || !_settings.MinimizeToTray)
-        {
-            // 真正退出前：MD 有未保存修改时询问（主题化弹窗是异步的：
-            // 先拦截关闭，等用户选完再真正关）
-            if (!_mdCloseConfirmed)
-            {
-                e.Cancel = true;
-                if (await MdView.ConfirmDiscardAsync())
-                {
-                    _mdCloseConfirmed = true;
-                    // 此刻窗口仍处于关闭流程中，直接 Close() 会抛
-                    // "窗口关闭期间无法调用 Close"，排到关闭结束后再关
-                    Dispatcher.BeginInvoke(() => Close());
-                }
-            }
             return;
-        }
         e.Cancel = true;
         HideToTray(showTip: true);
     }
 
     protected override void OnClosed(EventArgs e)
     {
-        Save();
+        FlushNowAsync().GetAwaiter().GetResult(); // 退出前把防抖中的改动强制落盘
         _settings.Save();
         if (_tray != null)
         {
@@ -1339,8 +1319,29 @@ public partial class MainWindow : Window
 
     void Save()
     {
-        TodoStorage.Save(_all.Select(v => v.Item));
+        _dirty = true;
+        _saveDebounce.Stop();
+        _saveDebounce.Start(); // 静默 400ms 才真正写盘，连续改动合并为一次
         if (_calMode) BuildCalendar(); // 增删/完成/改期即时反映到日历
+    }
+
+    /// <summary>立即把未落盘改动写盘（退出/备份/导入前调用）。快照在 UI 线程拍，文件 IO 串行放后台</summary>
+    async Task FlushNowAsync()
+    {
+        _saveDebounce.Stop();
+        while (_dirty)
+        {
+            _dirty = false;
+            var json = TodoStorage.Serialize(_all.Select(v => v.Item));
+            var prev = _flushTask;
+            _flushTask = Task.Run(() =>
+            {
+                prev.Wait(); // 串行：避免两个后台写交叉替换同一文件
+                TodoStorage.WriteAtomic(json);
+            });
+            await _flushTask;
+        }
+        await _flushTask;
     }
 
     static Brush BrushOf(string hex)
@@ -1562,19 +1563,17 @@ public partial class MainWindow : Window
     void UpdateCloseTooltip()
         => WinCloseBtn.ToolTip = Loc.Get(_settings.MinimizeToTray ? "CloseTipTray" : "CloseTipExit");
 
-    // ---------- 全局快捷键：主热键 + 三工具直达，共四槽位 ----------
+    // ---------- 全局快捷键：主热键 + 待办直达，共两槽位 ----------
 
-    enum HkSlot { Main = 0, Todo = 1, Md = 2, Launch = 3 }
+    enum HkSlot { Main = 0, Todo = 1 }
 
-    static readonly int[] HkIds = { 0x3230, 0x3231, 0x3232, 0x3233 };
-    readonly bool[] _slotOk = new bool[4];
+    static readonly int[] HkIds = { 0x3230, 0x3231 };
+    readonly bool[] _slotOk = new bool[2];
 
     string SlotText(HkSlot s) => s switch
     {
         HkSlot.Main => _settings.Hotkey,
         HkSlot.Todo => _settings.HotkeyTodo,
-        HkSlot.Md => _settings.HotkeyMd,
-        HkSlot.Launch => _settings.HotkeyLaunch,
         _ => "",
     };
 
@@ -1584,17 +1583,13 @@ public partial class MainWindow : Window
         {
             case HkSlot.Main: _settings.Hotkey = v; break;
             case HkSlot.Todo: _settings.HotkeyTodo = v; break;
-            case HkSlot.Md: _settings.HotkeyMd = v; break;
-            case HkSlot.Launch: _settings.HotkeyLaunch = v; break;
         }
     }
 
     static string SlotLabel(HkSlot s) => Loc.Get(s switch
     {
         HkSlot.Main => "HotkeyMainLabel",
-        HkSlot.Todo => "HotkeyTodoLabel",
-        HkSlot.Md => "HotkeyMdLabel",
-        _ => "HotkeyLaunchLabel",
+        _ => "HotkeyTodoLabel",
     });
 
     IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -1603,20 +1598,17 @@ public partial class MainWindow : Window
         {
             var id = wParam.ToInt32();
             if (id == HkIds[(int)HkSlot.Main]) { ToggleWindow(); handled = true; }
-            else if (id == HkIds[(int)HkSlot.Todo]) { SummonTool(ToolTab.Todo); handled = true; }
-            else if (id == HkIds[(int)HkSlot.Md]) { SummonTool(ToolTab.Md); handled = true; }
-            else if (id == HkIds[(int)HkSlot.Launch]) { SummonTool(ToolTab.Launch); handled = true; }
+            else if (id == HkIds[(int)HkSlot.Todo]) { SummonTodo(); handled = true; }
         }
         return IntPtr.Zero;
     }
 
-    /// <summary>工具直达：窗口隐藏/最小化→呼出并切换；已在目标页→收起；在其他页→切换。
+    /// <summary>待办直达热键：窗口隐藏/最小化→呼出；已在前台→收起。
     /// 最小化的窗口 IsVisible 仍是 true，必须一并视作"未呼出"，否则同页热键会把它藏掉而不是还原</summary>
-    void SummonTool(ToolTab tab)
+    void SummonTodo()
     {
-        if (!IsVisible || WindowState == WindowState.Minimized) { ShowFromTray(); SwitchTool(tab); }
-        else if (tab == _tab) Hide();
-        else SwitchTool(tab);
+        if (!IsVisible || WindowState == WindowState.Minimized) ShowFromTray();
+        else Hide();
         // 热键呼出意味着用户要立刻用工具，浮层不应挡着
         if (SettingsOverlay.Visibility == Visibility.Visible) CloseSettings();
         if (DetailOverlay.Visibility == Visibility.Visible) CloseDetail();
@@ -1626,21 +1618,13 @@ public partial class MainWindow : Window
     {
         HkMain.LabelKey = "HotkeyMainLabel";
         HkTodo.LabelKey = "HotkeyTodoLabel";
-        HkMd.LabelKey = "HotkeyMdLabel";
-        HkLaunch.LabelKey = "HotkeyLaunchLabel";
         HkMain.Apply += t => TrySetSlot(HkSlot.Main, t);
         HkTodo.Apply += t => TrySetSlot(HkSlot.Todo, t);
-        HkMd.Apply += t => TrySetSlot(HkSlot.Md, t);
-        HkLaunch.Apply += t => TrySetSlot(HkSlot.Launch, t);
         HkMain.Disable += () => TrySetSlot(HkSlot.Main, "");
         HkTodo.Disable += () => TrySetSlot(HkSlot.Todo, "");
-        HkMd.Disable += () => TrySetSlot(HkSlot.Md, "");
-        HkLaunch.Disable += () => TrySetSlot(HkSlot.Launch, "");
         // 捕获时吞掉与自己其他槽位重复的组合，避免按键真实触发那个槽
         HkMain.ShouldSwallow = t => DupInOtherSlot(HkSlot.Main, t);
         HkTodo.ShouldSwallow = t => DupInOtherSlot(HkSlot.Todo, t);
-        HkMd.ShouldSwallow = t => DupInOtherSlot(HkSlot.Md, t);
-        HkLaunch.ShouldSwallow = t => DupInOtherSlot(HkSlot.Launch, t);
     }
 
     bool DupInOtherSlot(HkSlot self, string text) =>
@@ -1720,8 +1704,6 @@ public partial class MainWindow : Window
         UpdateHotkeyPill();
         HkMain?.SetHotkey(SlotText(HkSlot.Main), _slotOk[(int)HkSlot.Main]);
         HkTodo?.SetHotkey(SlotText(HkSlot.Todo), _slotOk[(int)HkSlot.Todo]);
-        HkMd?.SetHotkey(SlotText(HkSlot.Md), _slotOk[(int)HkSlot.Md]);
-        HkLaunch?.SetHotkey(SlotText(HkSlot.Launch), _slotOk[(int)HkSlot.Launch]);
     }
 
     void UpdateTrayText()
@@ -1887,14 +1869,10 @@ public partial class MainWindow : Window
         HotkeyLabelTb.Text = Loc.Get("HotkeyLabel");
         HkMain.RefreshLocale();
         HkTodo.RefreshLocale();
-        HkMd.RefreshLocale();
-        HkLaunch.RefreshLocale();
         BackupLabelTb.Text = Loc.Get("BackupLabel");
         BackupExportBtn.Content = Loc.Get("BackupExport");
         BackupImportBtn.Content = Loc.Get("BackupImport");
         BackupHintTb.Text = Loc.Get("BackupHint");
-        MdAssocLabelTb.Text = Loc.Get("MdAssocLabel");
-        MdAssocToggleTb.Text = Loc.Get("MdAssocToggle");
         SettingsAboutTb.Text = Loc.F("AboutFmt", AppVersion);
 
         // 日期行（日期控件语言由 DateField 自行处理）
@@ -1918,7 +1896,6 @@ public partial class MainWindow : Window
 
         foreach (var vm in _all)
             vm.RefreshLocale();
-        LaunchView.RefreshLocale();
 
         UpdateCloseTooltip();
         UpdateHotkeyPill();
@@ -1947,7 +1924,6 @@ public partial class MainWindow : Window
         SyncThemeChecks();
         SyncCloseBehavior();
         AutoStartToggle.IsChecked = _settings.AutoStart;
-        SyncMdAssoc();
         SyncHotkeyChecks();
 
         SettingsOverlay.Visibility = Visibility.Visible;
@@ -2031,7 +2007,7 @@ public partial class MainWindow : Window
 
     // ---------- 数据备份 ----------
 
-    void BackupExportBtn_Click(object sender, RoutedEventArgs e)
+    async void BackupExportBtn_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
@@ -2040,6 +2016,7 @@ public partial class MainWindow : Window
             Title = Loc.Get("BackupExport"),
         };
         if (dlg.ShowDialog(this) != true) return;
+        await FlushNowAsync(); // 防抖中的改动先落盘，再打包
         try
         {
             Services.DataBackup.Export(dlg.FileName);
@@ -2066,11 +2043,11 @@ public partial class MainWindow : Window
             return;
         try
         {
-            // 覆盖前把当前数据先存一份临时安全副本，误导入还能救
+            // 覆盖前把当前数据先存一份临时安全副本，误导入还能救（防抖中的改动先落盘）
+            await FlushNowAsync();
             var safeCopy = Services.DataBackup.ExportToTemp();
             Services.DataBackup.Restore(dlg.FileName);
             _forceExit = true;
-            _mdCloseConfirmed = true; // 导入是全量覆盖，不再问未保存
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = Environment.ProcessPath ?? "",
@@ -2082,67 +2059,6 @@ public partial class MainWindow : Window
         {
             ShowTrayWarning(Loc.Get("ImportFailed") + " · " + dlg.FileName);
         }
-    }
-
-    // ---------- MD 文件关联 ----------
-
-    void MdAssocToggle_Changed(object sender, RoutedEventArgs e)
-    {
-        if (MdAssocToggle.IsChecked == null) return;
-        var on = MdAssocToggle.IsChecked == true;
-        if (_settings.MdAssociate == on) return;
-        _settings.MdAssociate = on;
-        _settings.Save();
-        ApplyMdAssociation(on);
-    }
-
-    void ApplyMdAssociation(bool on)
-    {
-        try
-        {
-            var exe = Environment.ProcessPath;
-            using (var pid = Registry.CurrentUser.CreateSubKey(@"Software\Classes\JeffBox.Markdown"))
-            {
-                pid.SetValue("", "Toolbox Markdown Document");
-                pid.CreateSubKey("shell\\open\\command").SetValue("", "\"" + exe + "\" \"%1\"");
-                pid.CreateSubKey("DefaultIcon").SetValue("", "\"" + exe + "\"");
-            }
-            if (on)
-            {
-                foreach (var extName in new[] { ".md", ".markdown" })
-                {
-                    using var ext = Registry.CurrentUser.CreateSubKey("Software\\Classes\\" + extName);
-                    ext.SetValue("", "JeffBox.Markdown");
-                    using var ow = ext.CreateSubKey("OpenWithProgids");
-                    ow.SetValue("JeffBox.Markdown", string.Empty);
-                    try
-                    {
-                        Registry.CurrentUser.DeleteSubKeyTree(
-                            "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\" + extName + "\\UserChoice",
-                            false);
-                    }
-                    catch { }
-                }
-            }
-            else
-            {
-                foreach (var extName in new[] { ".md", ".markdown" })
-                {
-                    using var ext = Registry.CurrentUser.OpenSubKey("Software\\Classes\\" + extName, true);
-                    if (ext?.GetValue("") as string == "JeffBox.Markdown") ext.SetValue("", "");
-                }
-            }
-        }
-        catch
-        {
-            ShowTrayWarning(Loc.Get("ImportFailed"));
-        }
-    }
-
-    void SyncMdAssoc()
-    {
-        if (MdAssocToggle == null) return;
-        MdAssocToggle.IsChecked = _settings.MdAssociate;
     }
 
     // ---------- 窗口按钮 ----------
@@ -2182,57 +2098,6 @@ public partial class MainWindow : Window
         var frameY = (Native.GetSystemMetrics(33) + Native.GetSystemMetrics(92)) / dpi; // SM_CYSIZEFRAME + SM_CXPADDEDBORDER
         RootGrid.Margin = new Thickness(frameX, frameY, frameX, frameY);
     }
-
-    // ---------- 工具切换 ----------
-
-    void NavTodo_Checked(object sender, RoutedEventArgs e) => SwitchTool(ToolTab.Todo);
-
-    void NavMd_Checked(object sender, RoutedEventArgs e) => SwitchTool(ToolTab.Md);
-
-    void NavLaunch_Checked(object sender, RoutedEventArgs e) => SwitchTool(ToolTab.Launch);
-
-    void SwitchTool(ToolTab tab)
-    {
-        if (_toolViews == null || tab == _tab) return;
-        _tab = tab;
-        // 同步左侧导航选中态：程序化切换（打开MD/热键直达/上次工具恢复）不会自动勾选，
-        // 不同步会导致导航高亮停留在待办、内容却是其他工具页
-        var nav = tab == ToolTab.Md ? NavMd : tab == ToolTab.Launch ? NavLaunch : NavTodo;
-        if (nav.IsChecked != true)
-            nav.IsChecked = true; // 触发 NavXxx_Checked → SwitchTool，此时 _tab 已相等会直接返回
-        _settings.LastTool = tab == ToolTab.Md ? "md" : tab == ToolTab.Launch ? "launch" : "todo";
-        _settings.Save();
-        if (tab != ToolTab.Md)
-            Title = Loc.Get("AppTitle"); // MD 页会带文件名，切走时复位
-        foreach (var kv in _toolViews)
-            kv.Value.Visibility = kv.Key == tab ? Visibility.Visible : Visibility.Collapsed;
-
-        if (tab == ToolTab.Md)
-        {
-            MdView.OnShown();
-            MdView.FocusEditor();
-        }
-    }
-
-    // ---------- 窗口级拖拽：md 文件直接丢进窗口 = 笔记工具打开 ----------
-
-    void Window_DragOver(object sender, DragEventArgs e) => e.Handled = true;
-
-    async void Window_Drop(object sender, DragEventArgs e)
-    {
-        if (!e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop)) return;
-        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] files || files.Length == 0) return;
-        var md = Array.Find(files, f =>
-        {
-            var ext = System.IO.Path.GetExtension(f).ToLowerInvariant();
-            return ext is ".md" or ".markdown" or ".txt";
-        });
-        if (md == null) return;
-        e.Handled = true;
-        SwitchTool(ToolTab.Md);
-        await MdView.OpenExternalAsync(md);
-    }
-
 
     // ---------- 窗口状态持久化 ----------
 
@@ -2325,22 +2190,6 @@ public partial class MainWindow : Window
         _tray?.ShowBalloonTip(4000, Loc.Get("AppTitle"), msg, System.Windows.Forms.ToolTipIcon.Warning);
     }
 
-    /// <summary>消费"打开方式"请求：切到笔记工具并加载该文件</summary>
-    public async void ConsumeOpenRequest()
-    {
-        try
-        {
-            var reqPath = Path.Combine(AppPaths.DataDir, "open_request.txt");
-            if (!System.IO.File.Exists(reqPath)) return;
-            var mdPath = System.IO.File.ReadAllText(reqPath).Trim();
-            System.IO.File.Delete(reqPath);
-            if (mdPath.Length == 0 || !System.IO.File.Exists(mdPath)) return;
-            SwitchTool(ToolTab.Md);
-            await MdView.OpenExternalAsync(mdPath);
-        }
-        catch { }
-    }
-
     void CloseBtn_Click(object sender, RoutedEventArgs e) => Close();
 }
 
@@ -2427,4 +2276,8 @@ static class Native
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
         int x, int y, int cx, int cy, uint uFlags);
+
+    // Win11 窗口圆角 / 边框颜色 / 背景材质等 DWM 属性
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int sizeOfValue);
 }

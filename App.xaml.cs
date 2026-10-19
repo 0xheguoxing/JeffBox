@@ -11,7 +11,6 @@ public partial class App : System.Windows.Application
     const string SignalName = @"Local\JeffBox.ShowSignal";
 
     public static bool StartMinimized;
-    public static string? PendingOpenFile;
 
     static string? _lastCrashSig;
     static int _crashRepeat;
@@ -38,9 +37,6 @@ public partial class App : System.Windows.Application
         catch { }
     }
 
-    static string OpenRequestPath =>
-System.IO.Path.Combine(Services.AppPaths.DataDir, "open_request.txt");
-
     Mutex? _mutex;
     EventWaitHandle? _showSignal;
     System.Threading.CancellationTokenSource? _signalCts;
@@ -58,32 +54,11 @@ System.IO.Path.Combine(Services.AppPaths.DataDir, "open_request.txt");
         AppDomain.CurrentDomain.UnhandledException += (_, ex) =>
             LogCrash("Domain", ex.ExceptionObject as Exception);
         try { System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance); } catch { }
-        // 先解析命令行（二次实例也要用它传递文件），再进入单实例判断
-        foreach (var a in e.Args)
-        {
-            if (a.StartsWith("-")) continue;
-            var ext = System.IO.Path.GetExtension(a).ToLowerInvariant();
-            if (File.Exists(a) && ext is ".md" or ".markdown" or ".txt")
-            {
-                PendingOpenFile = System.IO.Path.GetFullPath(a);
-                break;
-            }
-        }
 
         // 单实例：重复启动时唤醒已有窗口，避免托盘图标和全局热键重复注册
         _mutex = new Mutex(true, MutexName, out var createdNew);
         if (!createdNew)
         {
-            // 已有实例：把要打开的文件写入请求文件，再唤醒它
-            if (PendingOpenFile != null)
-            {
-                try
-                {
-                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(OpenRequestPath)!);
-                    System.IO.File.WriteAllText(OpenRequestPath, PendingOpenFile);
-                }
-                catch { }
-            }
             try { EventWaitHandle.OpenExisting(SignalName).Set(); } catch { }
             Shutdown();
             return;
@@ -92,17 +67,6 @@ System.IO.Path.Combine(Services.AppPaths.DataDir, "open_request.txt");
 
         Services.Theme.EnsureRegistered(); // 主题画刷必须先于窗口创建注册
 
-        // 把本应用注册进系统"打开方式"列表（仅添加选项，不改默认关联）
-        try
-        {
-            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
-                @"Software\Classes\Applications\JeffBox.exe\shell\open\command"))
-                k.SetValue(null, "\"" + Environment.ProcessPath + "\" \"%1\"");
-            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
-                @"Software\Classes\Applications\JeffBox.exe"))
-                k.SetValue("FriendlyAppName", "Toolbox 工具箱");
-        }
-        catch { }
         _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, SignalName);
         StartMinimized = e.Args.Contains("--minimized", StringComparer.OrdinalIgnoreCase);
 
@@ -120,9 +84,7 @@ System.IO.Path.Combine(Services.AppPaths.DataDir, "open_request.txt");
                         Dispatcher.BeginInvoke(() =>
                         {
                             var win = MainWindow as MainWindow;
-                            if (win == null) return;
-                            win.ShowFromTray();
-                            win.ConsumeOpenRequest();
+                            win?.ShowFromTray();
                         });
                 }
             }

@@ -12,10 +12,8 @@ public class AppSettings
     /// <summary>全局快捷键（显示/隐藏窗口），空串表示停用</summary>
     public string Hotkey { get; set; } = "Ctrl+Alt+T";
 
-    /// <summary>直达各工具页的快捷键，空串表示停用</summary>
+    /// <summary>直达待办页的快捷键，空串表示停用</summary>
     public string HotkeyTodo { get; set; } = "";
-    public string HotkeyMd { get; set; } = "";
-    public string HotkeyLaunch { get; set; } = "";
 
     /// <summary>界面语言：zh / en</summary>
     public string Language { get; set; } = "zh";
@@ -23,24 +21,12 @@ public class AppSettings
     /// <summary>主题：light / dark</summary>
     public string Theme { get; set; } = Services.Theme.Light;
 
-    /// <summary>MD 工具上次编辑的文件</summary>
-    public string RecentMd { get; set; } = "";
-
-    /// <summary>MD 最近打开的文件（新的在前，上限 10 由写入方维护）</summary>
-    public List<string> RecentFiles { get; set; } = new();
-
-    /// <summary>双击 .md 用工具箱打开（文件关联）</summary>
-    public bool MdAssociate { get; set; } = true;
-
     /// <summary>窗口位置与尺寸（关闭时记住）</summary>
     public double WinX { get; set; } = double.NaN;
     public double WinY { get; set; } = double.NaN;
     public double WinW { get; set; } = double.NaN;
     public double WinH { get; set; } = double.NaN;
     public bool WinMax { get; set; }
-
-    /// <summary>上次打开的工具页：todo / md / launch</summary>
-    public string LastTool { get; set; } = "todo";
 
     /// <summary>开机自启动</summary>
     public bool AutoStart { get; set; }

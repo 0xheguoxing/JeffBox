@@ -4,7 +4,7 @@ using System.IO.Compression;
 namespace TodoApp.Services;
 
 /// <summary>
-/// 全量数据备份：把 %APPDATA%\JeffBox 打包成 zip（todos / tools / settings / attachments），
+/// 全量数据备份：把 %APPDATA%\JeffBox 打包成 zip（todos / settings / attachments），
 /// 导入时整目录覆盖并以重启生效。zip 用系统内置 System.IO.Compression，零外部依赖。
 /// </summary>
 public static class DataBackup
@@ -25,7 +25,7 @@ public static class DataBackup
         return path;
     }
 
-    /// <summary>是否像本应用导出的备份（根层有 todos.json 或 tools.json）</summary>
+    /// <summary>是否像本应用导出的备份（根层有 todos.json；tools.json 兼容旧版备份）</summary>
     public static bool LooksLikeBackup(string zipPath)
     {
         try

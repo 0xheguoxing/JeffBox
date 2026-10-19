@@ -68,10 +68,17 @@ public static class Theme
             // 画刷在资源字典里会被 WPF 冻结，不能原地改色；
             // XAML 用 DynamicResource 引用，这里直接替换实例即可全局生效
             var target = Current == Dark ? kv.Value.Item2 : kv.Value.Item1;
+            // 云母生效时窗口背景让出给系统材质：只保留一层半透明色调（卡片仍近实色保可读性）
+            if (Backdrop.Enabled && kv.Key == "Bg")
+                target = Color.FromArgb(Current == Dark ? (byte)0xC8 : (byte)0xE8, target.R, target.G, target.B);
             var brush = new SolidColorBrush(target);
             brush.Freeze();
             res[kv.Key] = brush;
         }
+        // Fluent 控件主题跟随应用明暗，避免「应用浅色 + Fluent 深色控件」的错配
+        Application.Current.ThemeMode = Current == Dark ? ThemeMode.Dark : ThemeMode.Light;
+        // 云母的深浅色同步（未启用时只是记录状态）
+        Backdrop.SetDark(Current == Dark);
     }
 
     /// <summary>给代码层（MarkdownLite 等）取主题画刷，取不到时退回浅色值</summary>

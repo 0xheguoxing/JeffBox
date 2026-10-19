@@ -5,7 +5,7 @@ using TodoApp.Models;
 
 namespace TodoApp.Services;
 
-/// <summary>JSON 文件持久化，保存在 %APPDATA%\TodoApp\todos.json（树形结构，含旧数据迁移）</summary>
+/// <summary>JSON 文件持久化，保存在程序运行目录 data\todos.json（树形结构，含旧数据迁移）</summary>
 public static class TodoStorage
 {
     static readonly JsonSerializerOptions JsonOpts = new()
@@ -71,15 +71,19 @@ public static class TodoStorage
             MigrateLegacy(child);
     }
 
-    public static void Save(IEnumerable<TodoItem> items)
+    /// <summary>序列化为 JSON（在 UI 线程拍快照，文件 IO 交给 <see cref="WriteAtomic"/> 后台执行）</summary>
+    public static string Serialize(IEnumerable<TodoItem> items) =>
+        JsonSerializer.Serialize(items, JsonOpts);
+
+    /// <summary>原子写盘（.tmp + Replace）。写一半崩溃/磁盘满不会留下坏 JSON；建议在后台线程调用</summary>
+    public static void WriteAtomic(string json)
     {
         if (LastLoadFailed) return; // 数据没安全读回来之前，绝不覆盖磁盘
         try
         {
             Directory.CreateDirectory(Dir);
             var tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(items, JsonOpts));
-            // 原子替换：写一半崩溃/磁盘满不会留下坏 JSON
+            File.WriteAllText(tmp, json);
             if (File.Exists(FilePath))
                 File.Replace(tmp, FilePath, null);
             else
@@ -90,4 +94,6 @@ public static class TodoStorage
             // 磁盘异常时不让应用崩溃，下次改动会再尝试保存
         }
     }
+
+    public static void Save(IEnumerable<TodoItem> items) => WriteAtomic(Serialize(items));
 }

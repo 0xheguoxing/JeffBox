@@ -18,3 +18,10 @@ Thumbs.db
 publish/
 publish-sc/
 *.pdb
+
+# 本地工具产物
+.answer-me-html/
+.pi/
+
+# 便携模式数据目录（exe 旁）
+/data/

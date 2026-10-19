@@ -15,48 +15,18 @@
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         PreviewKeyDown="Window_PreviewKeyDown"
-        PreviewMouseDown="Window_PreviewMouseDown"
-        AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
+        PreviewMouseDown="Window_PreviewMouseDown">
 
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="44"
                       ResizeBorderThickness="6"
-                      GlassFrameThickness="0"
+                      GlassFrameThickness="-1"
                       CornerRadius="0"
                       UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
-        <Style x:Key="NavBtn" TargetType="RadioButton">
-            <Setter Property="Width" Value="40" />
-            <Setter Property="Height" Value="40" />
-            <Setter Property="Margin" Value="6,4" />
-            <Setter Property="Foreground" Value="{DynamicResource TextSub}" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Focusable" Value="False" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="10">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBg}" />
-                            </Trigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SegCheckedBg}" />
-                                <Setter Property="Foreground" Value="{DynamicResource Accent}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        
         <local:LevelIndentConverter x:Key="LevelIndent" />
         <local:LevelScaleConverter x:Key="LevelScale" />
         <local:NullToCollapsedConverter x:Key="NullToCollapsed" />
@@ -450,83 +420,6 @@
                                 </Trigger.ExitActions>
                             </Trigger>
                         </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ============ 扁平下拉框 ============ -->
-        <Style x:Key="FlatComboItem" TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
-            <Setter Property="FontSize" Value="12.5" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBoxItem">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="7" Padding="9,6" Margin="2,1">
-                            <ContentPresenter />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBg}" />
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ChipBg}" />
-                                <Setter Property="Foreground" Value="{DynamicResource Accent}" />
-                                <Setter TargetName="Bd" Property="TextElement.FontWeight" Value="SemiBold" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="FlatCombo" TargetType="ComboBox">
-            <Setter Property="Background" Value="{DynamicResource Card}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource Line}" />
-            <Setter Property="BorderThickness" Value="1.4" />
-            <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
-            <Setter Property="FontSize" Value="12.5" />
-            <Setter Property="Height" Value="32" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="ItemContainerStyle" Value="{StaticResource FlatComboItem}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <ToggleButton Focusable="False" ClickMode="Press"
-                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
-                                          Background="Transparent" BorderThickness="0">
-                                <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Border CornerRadius="8"
-                                                Background="{Binding Background, RelativeSource={RelativeSource AncestorType=ComboBox}}"
-                                                BorderBrush="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=ComboBox}}"
-                                                BorderThickness="{Binding BorderThickness, RelativeSource={RelativeSource AncestorType=ComboBox}}">
-                                            <Path Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource TextSub}" StrokeThickness="1.6"
-                                                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                        </Border>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
-                            <ContentPresenter Content="{TemplateBinding SelectionBoxItem}"
-                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                              Margin="10,0,26,0"
-                                              HorizontalAlignment="Left" VerticalAlignment="Center"
-                                              IsHitTestVisible="False" />
-                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
-                                   AllowsTransparency="True" PopupAnimation="Fade">
-                                <Border Background="{DynamicResource Card}" CornerRadius="10" Margin="0,4,0,0"
-                                        MinWidth="{TemplateBinding ActualWidth}" Padding="6">
-                                    <Border.Effect>
-                                        <DropShadowEffect BlurRadius="16" ShadowDepth="2" Opacity="0.16" Color="#3A4160" />
-                                    </Border.Effect>
-                                    <ScrollViewer MaxHeight="220">
-                                        <ItemsPresenter />
-                                    </ScrollViewer>
-                                </Border>
-                            </Popup>
-                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -1020,12 +913,11 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
         <!-- ======== 标题栏 ======== -->
-        <Grid Grid.Row="0" Grid.ColumnSpan="2">
+        <Grid Grid.Row="0">
             <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
                 <Border Width="24" Height="24" CornerRadius="7" Background="{DynamicResource Accent}">
                     <TextBlock Text="✓" Foreground="White" FontSize="13" FontWeight="Bold"
@@ -1058,27 +950,8 @@
             </StackPanel>
         </Grid>
 
-        <!-- ======== 导航栏 ======== -->
-        <Border Grid.Row="1" Grid.Column="0" Width="52"
-                Background="{DynamicResource Pill}">
-            <StackPanel VerticalAlignment="Top" Margin="0,12,0,0">
-                <RadioButton x:Name="NavTodo" Style="{StaticResource NavBtn}"
-                             GroupName="nav" IsChecked="True" Checked="NavTodo_Checked"
-                             ToolTip="{Binding [NavTodo], Source={x:Static svc:Loc.Instance}}"
-                             Content="&#xE73A;" />
-                <RadioButton x:Name="NavMd" Style="{StaticResource NavBtn}"
-                             GroupName="nav" Checked="NavMd_Checked"
-                             ToolTip="{Binding [NavMd], Source={x:Static svc:Loc.Instance}}"
-                             Content="&#xE70B;" />
-                <RadioButton x:Name="NavLaunch" Style="{StaticResource NavBtn}"
-                             GroupName="nav" Checked="NavLaunch_Checked"
-                             ToolTip="{Binding [NavLaunch], Source={x:Static svc:Loc.Instance}}"
-                             Content="&#xE71D;" />
-            </StackPanel>
-        </Border>
-
         <!-- ======== 主内容区 ======== -->
-        <Grid Grid.Row="1" Grid.Column="1">
+        <Grid Grid.Row="1">
         <Grid x:Name="TodoView">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -1205,10 +1078,8 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <views:DateField x:Name="NewDatePicker" Grid.Column="0" />
-                        <ComboBox x:Name="NewHourCombo" Grid.Column="2"
-                                  Style="{StaticResource FlatCombo}" Width="64" />
-                        <ComboBox x:Name="NewMinCombo" Grid.Column="4"
-                                  Style="{StaticResource FlatCombo}" Width="64" />
+                        <ComboBox x:Name="NewHourCombo" Grid.Column="2" Width="64" />
+                        <ComboBox x:Name="NewMinCombo" Grid.Column="4" Width="64" />
                         <Button x:Name="NewNoDueBtn" Grid.Column="6" Style="{StaticResource GhostBtn}"
                                 VerticalAlignment="Center" Click="NewNoDueBtn_Click" />
                     </Grid>
@@ -1383,12 +1254,10 @@
 
         </Grid><!-- /TodoView -->
 
-        <views:MdToolView x:Name="MdView" Visibility="Collapsed" />
-        <views:LaunchToolView x:Name="LaunchView" Visibility="Collapsed" />
         </Grid><!-- /主内容区 -->
 
         <!-- ======== 到期提醒横幅 ======== -->
-        <Grid x:Name="BannerHost" Grid.Row="0" Grid.RowSpan="2" Grid.ColumnSpan="2" Visibility="Collapsed"
+        <Grid x:Name="BannerHost" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed"
               VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,10,0,0">
             <Border x:Name="BannerCard" CornerRadius="14" Padding="16,11" MinWidth="330" Opacity="1">
                 <Border.Background>
@@ -1432,7 +1301,7 @@
         </Grid>
 
         <!-- ======== 详情浮层（实时编辑，任意层级） ======== -->
-        <Grid x:Name="DetailOverlay" Grid.Row="0" Grid.RowSpan="2" Grid.ColumnSpan="2" Visibility="Collapsed">
+        <Grid x:Name="DetailOverlay" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed">
             <Border x:Name="OverlayMask" Background="#73161C2E" Opacity="0"
                     MouseLeftButtonUp="OverlayMask_MouseLeftButtonUp" />
             <Border x:Name="OverlayCard" Width="382" CornerRadius="16" Background="{DynamicResource Card}"
@@ -1503,11 +1372,9 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <views:DateField x:Name="DueDatePicker" Grid.Column="0" />
-                            <ComboBox x:Name="HourCombo" Grid.Column="2"
-                                      Style="{StaticResource FlatCombo}" Width="64"
+                            <ComboBox x:Name="HourCombo" Grid.Column="2" Width="64"
                                       SelectionChanged="TimeCombo_SelectionChanged" />
-                            <ComboBox x:Name="MinCombo" Grid.Column="4"
-                                      Style="{StaticResource FlatCombo}" Width="64"
+                            <ComboBox x:Name="MinCombo" Grid.Column="4" Width="64"
                                       SelectionChanged="TimeCombo_SelectionChanged" />
                             <Button x:Name="NoDeadlineBtn" Grid.Column="6" Style="{StaticResource GhostBtn}"
                                     Content="无期限" VerticalAlignment="Center"
@@ -1588,7 +1455,7 @@
         </Grid>
 
         <!-- ======== 设置浮层 ======== -->
-        <Grid x:Name="SettingsOverlay" Grid.Row="0" Grid.RowSpan="2" Grid.ColumnSpan="2" Visibility="Collapsed">
+        <Grid x:Name="SettingsOverlay" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed">
             <Border x:Name="SettingsMask" Background="#73161C2E" Opacity="0"
                     MouseLeftButtonUp="SettingsMask_MouseLeftButtonUp" />
             <Border x:Name="SettingsCard" Width="360" CornerRadius="16" Background="{DynamicResource Card}"
@@ -1665,31 +1532,14 @@
                     </Grid>
 
                     <TextBlock x:Name="OpenPosLabelTb" Style="{StaticResource SettingsLabel}" Text="打开位置" />
-                    <ComboBox x:Name="OpenPosCombo" Style="{StaticResource FlatCombo}" Width="196"
+                    <ComboBox x:Name="OpenPosCombo" Width="196"
                               HorizontalAlignment="Left" SelectionChanged="OpenPosCombo_SelectionChanged" />
 
                     <TextBlock x:Name="HotkeyLabelTb" Style="{StaticResource SettingsLabel}" Text="全局快捷键" />
                     <StackPanel>
                         <views:HotkeyBox x:Name="HkMain" />
                         <views:HotkeyBox x:Name="HkTodo" Margin="0,8,0,0" />
-                        <views:HotkeyBox x:Name="HkMd" Margin="0,8,0,0" />
-                        <views:HotkeyBox x:Name="HkLaunch" Margin="0,8,0,0" />
                     </StackPanel>
-
-                    <TextBlock x:Name="MdAssocLabelTb" Style="{StaticResource SettingsLabel}" Text="MD 文件关联" />
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <CheckBox x:Name="MdAssocToggle" Grid.Column="0"
-                                  Style="{StaticResource SwitchCheck}" VerticalAlignment="Center"
-                                  Checked="MdAssocToggle_Changed" Unchecked="MdAssocToggle_Changed" />
-                        <TextBlock x:Name="MdAssocToggleTb" Grid.Column="2" FontSize="11.5"
-                                   Foreground="{DynamicResource TextSub}"
-                                   VerticalAlignment="Center" TextWrapping="Wrap" />
-                    </Grid>
 
                     <TextBlock x:Name="BackupLabelTb" Style="{StaticResource SettingsLabel}" Text="数据备份" />
                     <StackPanel Orientation="Horizontal">
