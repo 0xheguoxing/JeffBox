@@ -34,6 +34,12 @@ public class AppSettings
     /// <summary>启动 / 快捷方式呼出时窗口出现的位置：remember(默认) / screen(鼠标屏居中) / near(鼠标附近)</summary>
     public string OpenPosition { get; set; } = "remember";
 
+    /// <summary>详情浮层宽度（用户拖拽后记住；≤0 回退默认）</summary>
+    public double DetailW { get; set; } = 382;
+
+    /// <summary>详情浮层高度（0 = 随内容自适应；拖拽后固定）</summary>
+    public double DetailH { get; set; } = 0;
+
     static string Dir =>
         AppPaths.DataDir;
 

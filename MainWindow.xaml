@@ -31,6 +31,8 @@
         <local:LevelIndentConverter x:Key="LevelIndent" />
         <local:LevelScaleConverter x:Key="LevelScale" />
         <local:NullToCollapsedConverter x:Key="NullToCollapsed" />
+        <local:TagCountToVisConverter x:Key="TagCountVis" />
+        <local:PriorityEqualsConverter x:Key="PriorityEquals" />
 
         <!-- ============ 滚动条（极简细条） ============ -->
         
@@ -75,7 +77,7 @@
                                      Stroke="{DynamicResource TrackOff}" StrokeThickness="1.6" />
                             <Ellipse x:Name="Fill" Width="21" Height="21"
                                      Fill="{DynamicResource Accent}" Opacity="0" />
-                            <Path x:Name="Check" Data="M 6.5,11.2 L 10.2,14.8 L 16,7.5"
+                            <Path x:Name="Check" Data="M 12.25,17.05 L 15.95,20.65 L 21.75,13.35"
                                   Stroke="White" StrokeThickness="2.4"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   Opacity="0" />
@@ -481,6 +483,11 @@
             </Setter>
         </Style>
 
+        <Style x:Key="InlineDetailBox" TargetType="TextBox" BasedOn="{StaticResource NotesBox}">
+            <!-- 粘贴图片与列表内嵌详情框共用：发件人即 TextBox，附件按所属任务归档 -->
+            <EventSetter Event="DataObject.Pasting" Handler="OnNotesPaste" />
+        </Style>
+
         <!-- 创建时的内联详情输入：随内容增长（外层创建卡自身可滚动） -->
         <Style x:Key="NewDetailsBox" TargetType="TextBox" BasedOn="{StaticResource NotesBox}">
             <Setter Property="MinHeight" Value="72" />
@@ -489,13 +496,6 @@
         </Style>
 
         <!-- 子任务添加输入框 -->
-        <Style x:Key="SubAddBox" TargetType="TextBox" BasedOn="{StaticResource NotesBox}">
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="MaxHeight" Value="80" />
-            <Setter Property="Padding" Value="9,7" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="AcceptsReturn" Value="False" />
-        </Style>
 
         <!-- 子任务行内文字编辑框 -->
         <Style x:Key="InlineSubBox" TargetType="TextBox">
@@ -516,221 +516,7 @@
             </Setter>
         </Style>
 
-        
 
-<Style x:Key="ThemeCalendarItem" TargetType="CalendarItem">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="CalendarItem">
-                        <Border x:Name="PART_Root" Background="{DynamicResource Card}" CornerRadius="12" Padding="4">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="*" />
-                                </Grid.RowDefinitions>
-                                <Grid Grid.Row="0" Margin="2,4,2,6">
-                                    <Button x:Name="PART_PreviousButton" Width="26" Height="26" HorizontalAlignment="Left"
-                                            Focusable="False" Cursor="Hand" Background="Transparent" BorderThickness="0">
-                                        <Button.Template>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border x:Name="Bd" Background="Transparent" CornerRadius="7">
-                                                    <TextBlock Text="&#xE76B;" FontFamily="{StaticResource IconFont}"
-                                                               FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                </Border>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBg}" />
-                                                    </Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </Button.Template>
-                                    </Button>
-                                    <Button x:Name="PART_HeaderButton" HorizontalAlignment="Center" Focusable="False" Cursor="Hand"
-                                            Background="Transparent" BorderThickness="0"
-                                            Foreground="{DynamicResource TextMain}" FontSize="13" FontWeight="SemiBold">
-                                        <Button.Template>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border x:Name="Bd" Background="Transparent" CornerRadius="7" Padding="10,5">
-                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                </Border>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBg}" />
-                                                    </Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </Button.Template>
-                                    </Button>
-                                    <Button x:Name="PART_NextButton" Width="26" Height="26" HorizontalAlignment="Right"
-                                            Focusable="False" Cursor="Hand" Background="Transparent" BorderThickness="0">
-                                        <Button.Template>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border x:Name="Bd" Background="Transparent" CornerRadius="7">
-                                                    <TextBlock Text="&#xE76C;" FontFamily="{StaticResource IconFont}"
-                                                               FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                </Border>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBg}" />
-                                                    </Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </Button.Template>
-                                    </Button>
-                                </Grid>
-                                <Grid Grid.Row="1">
-                                    <UniformGrid x:Name="PART_MonthView" Rows="7" Columns="7" />
-                                    <UniformGrid x:Name="PART_YearView" Rows="3" Columns="4" Visibility="Collapsed" />
-                                </Grid>
-                            </Grid>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <DataTrigger Binding="{Binding DisplayMode, RelativeSource={RelativeSource FindAncestor, AncestorType=Calendar}}" Value="Year">
-                                <Setter TargetName="PART_MonthView" Property="Visibility" Value="Collapsed" />
-                                <Setter TargetName="PART_YearView" Property="Visibility" Value="Visible" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding DisplayMode, RelativeSource={RelativeSource FindAncestor, AncestorType=Calendar}}" Value="Decade">
-                                <Setter TargetName="PART_MonthView" Property="Visibility" Value="Collapsed" />
-                                <Setter TargetName="PART_YearView" Property="Visibility" Value="Visible" />
-                            </DataTrigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-<Style x:Key="ThemeCalendarDay" TargetType="CalendarDayButton">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Margin" Value="1" />
-            <Setter Property="MinWidth" Value="30" />
-            <Setter Property="MinHeight" Value="28" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="CalendarDayButton">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Margin="1">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="6,5" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBg}" />
-                            </Trigger>
-                            <Trigger Property="IsToday" Value="True">
-                                <Setter Property="Foreground" Value="{DynamicResource Accent}" />
-                                <Setter Property="FontWeight" Value="SemiBold" />
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Accent}" />
-                                <Setter Property="Foreground" Value="White" />
-                            </Trigger>
-                            <Trigger Property="IsInactive" Value="True">
-                                <Setter Property="Foreground" Value="{DynamicResource TextFaint}" />
-                            </Trigger>
-                            <Trigger Property="IsBlackedOut" Value="True">
-                                <Setter Property="Opacity" Value="0.3" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-<Style x:Key="ThemeCalendarMonthCell" TargetType="CalendarButton">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="MinWidth" Value="52" />
-            <Setter Property="MinHeight" Value="34" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="CalendarButton">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Margin="1">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="8,7" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBg}" />
-                            </Trigger>
-                            <Trigger Property="HasSelectedDays" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Accent}" />
-                                <Setter Property="Foreground" Value="White" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ============ 提醒横幅按钮 ============ -->
-        <Style x:Key="BannerChipBtn" TargetType="Button">
-            <Setter Property="Foreground" Value="White" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="#22FFFFFF" CornerRadius="8" Padding="11,5">
-                            <Border.BorderBrush>
-                                <SolidColorBrush Color="White" Opacity="0.55" />
-                            </Border.BorderBrush>
-                            <Border.BorderThickness>1</Border.BorderThickness>
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#3DFFFFFF" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="BannerCloseBtn" TargetType="Button">
-            <Setter Property="Foreground" Value="#E6E9FF" />
-            <Setter Property="FontSize" Value="10" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="7" Width="26" Height="26">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#26FFFFFF" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ============ 浮层子任务快编行 ============ -->
-        <DataTemplate x:Key="SubEditRow" DataType="{x:Type local:TodoViewModel}">
-            <Border Background="{DynamicResource Surface2}" CornerRadius="8" Padding="8,3" Margin="0,0,0,5">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <CheckBox Grid.Column="0" Style="{StaticResource MiniCheck}"
-                              IsChecked="{Binding IsDone}" VerticalAlignment="Center" />
-                    <TextBox Grid.Column="1" Style="{StaticResource InlineSubBox}"
-                             Text="{Binding Text, UpdateSourceTrigger=LostFocus}"
-                             VerticalAlignment="Center" Margin="4,0,4,0" />
-                    <Button Grid.Column="2" Style="{StaticResource GhostBtn}" Content="✕" FontSize="10"
-                            Click="OverlaySubDelete_Click" VerticalAlignment="Center" />
-                </Grid>
-            </Border>
-        </DataTemplate>
 
         <!-- ============ 待办卡片模板（递归：子任务复用同一模板） ============ -->
         <DataTemplate x:Key="TodoCard" DataType="{x:Type local:TodoViewModel}">
@@ -753,6 +539,7 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
@@ -786,90 +573,41 @@
 
                         <StackPanel Grid.Column="2" Margin="6,0,8,0" VerticalAlignment="Center">
                             <TextBlock Style="{StaticResource CardText}" Text="{Binding Text}" />
-
-                            <!-- 截止时间 / 子任务进度胶囊 -->
-                            <StackPanel Orientation="Horizontal" Margin="1,7,0,1">
-                                <Border x:Name="DueChip" CornerRadius="5" Padding="7,3">
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Setter Property="Background" Value="{DynamicResource DueChipBg}" />
-                                            <Setter Property="TextElement.Foreground" Value="{DynamicResource DueChipFg}" />
-                                            <Setter Property="Visibility" Value="Visible" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding DueText}" Value="">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding IsOverdue}" Value="True">
-                                                    <Setter Property="Background" Value="{DynamicResource OverdueBg}" />
-                                                    <Setter Property="TextElement.Foreground" Value="{DynamicResource OverdueFg}" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Grid Width="11" Height="11" VerticalAlignment="Center">
-                                            <Ellipse Stroke="{Binding (TextElement.Foreground), RelativeSource={RelativeSource AncestorType=Border}}"
-                                                     StrokeThickness="1.3" />
-                                            <Line X1="5.5" Y1="3" X2="5.5" Y2="5.6"
-                                                  Stroke="{Binding (TextElement.Foreground), RelativeSource={RelativeSource AncestorType=Border}}"
-                                                  StrokeThickness="1.3"
-                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                                            <Line X1="5.5" Y1="5.6" X2="7.6" Y2="4.4"
-                                                  Stroke="{Binding (TextElement.Foreground), RelativeSource={RelativeSource AncestorType=Border}}"
-                                                  StrokeThickness="1.3"
-                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                                        </Grid>
-                                        <TextBlock Text="{Binding DueText}" FontSize="11"
-                                                   Margin="5,0,0,0" VerticalAlignment="Center" />
-                                        <Path Data="M3.1,7.4 L2.0,8.9 L8.0,8.9 L6.9,7.4 L6.9,4.7 C6.9,3.1 5.9,1.9 5.0,1.9 C4.1,1.9 3.1,3.1 3.1,4.7 Z"
-                                              Width="10" Height="10" Stretch="Uniform" Margin="6,1,0,0"
-                                              VerticalAlignment="Center"
-                                              Fill="{Binding (TextElement.Foreground), RelativeSource={RelativeSource AncestorType=Border}}">
-                                            <Path.Style>
-                                                <Style TargetType="Path">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding Remind}" Value="True">
-                                                            <Setter Property="Visibility" Value="Visible" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Path.Style>
-                                        </Path>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border CornerRadius="5" Background="{DynamicResource SubPillBg}" Padding="7,3" Margin="6,0,0,0"
-                                        Visibility="{Binding HasSubs, Converter={StaticResource BoolToVis}}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Grid Width="11" Height="11" VerticalAlignment="Center">
-                                            <Rectangle Width="9" Height="9" RadiusX="1.5" RadiusY="1.5"
-                                                       Stroke="{DynamicResource SubPillFg}" StrokeThickness="1.3" />
-                                            <Line X1="4.5" Y1="2.6" X2="4.5" Y2="6.4"
-                                                  Stroke="{DynamicResource SubPillFg}" StrokeThickness="1.3"
-                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                                        </Grid>
-                                        <TextBlock Text="{Binding SubProgress}" FontSize="11"
-                                                   Foreground="{DynamicResource SubPillFg}" Margin="5,0,0,0" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
                         </StackPanel>
 
-                        <Button Grid.Column="3" Style="{StaticResource ChevronBtn}"
+                        <!-- 标签（行末，垂直居中） -->
+                        <ItemsControl Grid.Column="3" ItemsSource="{Binding Tags}"
+                                      VerticalAlignment="Center" Margin="0,0,8,0" IsHitTestVisible="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource Pill}" CornerRadius="4"
+                                            Padding="5,2" Margin="0,0,4,0">
+                                        <TextBlock Text="{Binding}" FontSize="10"
+                                                   Foreground="{DynamicResource TextSub}" />
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Button Grid.Column="4" Style="{StaticResource ChevronBtn}" VerticalAlignment="Center"
                                 Click="ChevronBtn_Click" ToolTip="{Binding ChevronTip}">
                             <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE76C;" FontSize="11" />
                         </Button>
 
-                        <Button Grid.Column="4" Style="{StaticResource DeleteBtn}"
+                        <Button Grid.Column="5" Style="{StaticResource DeleteBtn}" VerticalAlignment="Center"
                                 Content="✕" Click="DeleteBtn_Click"
                                 ToolTip="{Binding [Delete], Source={x:Static svc:Loc.Instance}}" />
 
-                        <!-- 悬停 500ms 预览弹窗（可点击打开详情，不拦截下方卡片以外的操作） -->
+                        <!-- 悬停 500ms 预览弹窗（可点击展开详情，不拦截下方卡片以外的操作） -->
                         <Popup x:Name="PreviewPopup" AllowsTransparency="True" StaysOpen="True"
                                PlacementTarget="{Binding ElementName=CardRoot}" Placement="Bottom"
                                HorizontalOffset="-6" VerticalOffset="6" PopupAnimation="Fade"
-                               Grid.Column="0" Grid.ColumnSpan="5">
+                               Grid.Column="0" Grid.ColumnSpan="6">
                             <Border Background="#EE262B3B" CornerRadius="10" Padding="14,12"
                                     MaxWidth="340" Cursor="Hand"
                                     MouseEnter="PreviewPopup_Enter" MouseLeave="PreviewPopup_Leave"
@@ -898,11 +636,125 @@
                         </Popup>
                     </Grid>
 
-                    <!-- 子任务（完整卡片，递归模板） -->
-                    <ItemsControl Grid.Row="1" ItemsSource="{Binding Children}"
-                                  ItemTemplate="{DynamicResource TodoCard}"
-                                  Margin="2,2,0,0"
-                                  Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}" />
+                    <!-- 下拉详情：面板由 IsDetailOpen 控制 -->
+                    <StackPanel Grid.Row="1">
+                        <Border Background="{DynamicResource Surface2}" CornerRadius="10" Padding="10,9" Margin="0,6,0,2"
+                                Cursor="Arrow" MouseLeftButtonUp="InlinePanel_Click"
+                                BorderBrush="{DynamicResource Outline}" BorderThickness="1"
+                                Visibility="{Binding IsDetailOpen, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <!-- 面板头 -->
+                                <Grid>
+                                    <TextBlock Style="{StaticResource DetailLabel}"
+                                               Text="{Binding [DetailTitle], Source={x:Static svc:Loc.Instance}}"
+                                               VerticalAlignment="Center" />
+                                    <Button x:Name="InlinePreviewToggle" Style="{StaticResource GhostBtn}" Content="预览" FontSize="11"
+                                            HorizontalAlignment="Right" Click="InlinePreviewToggle_Click"
+                                            ToolTip="{Binding [Preview], Source={x:Static svc:Loc.Instance}}" />
+                                </Grid>
+                                <!-- 详情（编辑 ⇄ 预览切换；Ctrl+V 粘贴图片） -->
+                                <Grid Margin="0,8,0,0">
+                                    <TextBox x:Name="InlineDetailsBox" Style="{StaticResource InlineDetailBox}" MinHeight="64"
+                                             Text="{Binding Details, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                                    <StackPanel x:Name="InlinePreviewHost" Visibility="Collapsed" />
+                                </Grid>
+                                <!-- 标签：流式胶囊 + 行内“＋ 标签”输入 -->
+                                <WrapPanel Margin="0,9,0,0">
+                                    <ItemsControl ItemsSource="{Binding Tags}" VerticalAlignment="Center">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource Pill}" CornerRadius="5"
+                                                        Padding="7,2" Margin="0,0,4,4">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding}" FontSize="10.5"
+                                                                   Foreground="{DynamicResource TextBody}"
+                                                                   VerticalAlignment="Center" />
+                                                        <Button Content="✕" FontSize="8.5" Margin="4,0,-2,0"
+                                                                Style="{StaticResource GhostBtn}"
+                                                                Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                Click="InlineTagRemove_Click" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Grid Width="74" Margin="0,0,0,4" VerticalAlignment="Center">
+                                        <TextBox x:Name="InlineTagBox" FontSize="11.5"
+                                                 VerticalContentAlignment="Center"
+                                                 KeyDown="InlineTagBox_KeyDown"
+                                                 ToolTip="{Binding [TagAddTip], Source={x:Static svc:Loc.Instance}}">
+                                            <TextBox.Template>
+                                                <ControlTemplate TargetType="TextBox">
+                                                    <Border Background="{DynamicResource Card}"
+                                                            BorderBrush="{DynamicResource Outline}" BorderThickness="1"
+                                                            CornerRadius="6" Padding="6,3">
+                                                        <ScrollViewer x:Name="PART_ContentHost"
+                                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                                      HorizontalAlignment="Left" />
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </TextBox.Template>
+                                        </TextBox>
+                                        <TextBlock Text="＋ 标签" IsHitTestVisible="False" FontSize="11"
+                                                   Foreground="{DynamicResource TextFaint}"
+                                                   VerticalAlignment="Center" Margin="7,0,0,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Text, ElementName=InlineTagBox}" Value="">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                </WrapPanel>
+
+
+                                <!-- 优先级 -->
+                                <Border Background="{DynamicResource Pill}" CornerRadius="9" Padding="3"
+                                        HorizontalAlignment="Left" Margin="0,9,0,0">
+                                    <UniformGrid Columns="4">
+                                        <RadioButton Style="{StaticResource SegButton}" GroupName="{Binding Id}"
+                                                     Content="{Binding [PriorityNone], Source={x:Static svc:Loc.Instance}}"
+                                                     IsChecked="{Binding Priority, Mode=TwoWay, Converter={StaticResource PriorityEquals}, ConverterParameter=0}" />
+                                        <RadioButton Style="{StaticResource SegButton}" GroupName="{Binding Id}"
+                                                     Content="{Binding [PriorityLow], Source={x:Static svc:Loc.Instance}}"
+                                                     IsChecked="{Binding Priority, Mode=TwoWay, Converter={StaticResource PriorityEquals}, ConverterParameter=1}" />
+                                        <RadioButton Style="{StaticResource SegButton}" GroupName="{Binding Id}"
+                                                     Content="{Binding [PriorityMid], Source={x:Static svc:Loc.Instance}}"
+                                                     IsChecked="{Binding Priority, Mode=TwoWay, Converter={StaticResource PriorityEquals}, ConverterParameter=2}" />
+                                        <RadioButton Style="{StaticResource SegButton}" GroupName="{Binding Id}"
+                                                     Content="{Binding [PriorityHigh], Source={x:Static svc:Loc.Instance}}"
+                                                     IsChecked="{Binding Priority, Mode=TwoWay, Converter={StaticResource PriorityEquals}, ConverterParameter=3}" />
+                                    </UniformGrid>
+                                </Border>
+
+                                <!-- 操作行 -->
+                                <Grid Margin="0,10,0,0">
+                                    <Button Style="{StaticResource GhostBtn}"
+                                            Content="{Binding [Delete], Source={x:Static svc:Loc.Instance}}"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center" Click="InlineDelete_Click" />
+                                    <Button Style="{StaticResource AddBtn}"
+                                            Content="{Binding [Done], Source={x:Static svc:Loc.Instance}}"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center" Click="InlineDone_Click" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 子任务（完整卡片，递归模板） -->
+                        <ItemsControl ItemsSource="{Binding Children}"
+                                      ItemTemplate="{DynamicResource TodoCard}"
+                                      Margin="2,2,0,0"
+                                      Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -983,7 +835,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <Button Grid.Column="0" x:Name="PriorityBtn" Style="{StaticResource PriorityBtn}"
+                <Button Grid.Column="0" x:Name="PriorityBtn" Style="{StaticResource PriorityBtn}" VerticalAlignment="Center"
                         Click="PriorityBtn_Click">
                     <StackPanel Orientation="Horizontal">
                         <Ellipse x:Name="PriorityDot" Width="9" Height="9" Fill="#C9CEE0" />
@@ -1021,7 +873,7 @@
 
             <!-- 完整创建卡：与详情浮层同构，一步创建 -->
             <Border x:Name="NewDetailsPanel" Visibility="Collapsed" Background="{DynamicResource Card}"
-                    BorderBrush="{DynamicResource Line}" BorderThickness="1.4"
+                    BorderBrush="{DynamicResource Outline}" BorderThickness="1"
                     CornerRadius="12" Padding="12,10" Margin="0,0,0,2"
                     MaxHeight="{Binding ActualHeight, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}">
                 <Border.Effect>
@@ -1067,35 +919,64 @@
                         </Border>
                     </Grid>
 
-                    <TextBlock x:Name="NewDueLabelTb" Style="{StaticResource DetailLabel}" />
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <views:DateField x:Name="NewDatePicker" Grid.Column="0" />
-                        <ComboBox x:Name="NewHourCombo" Grid.Column="2" Width="64" />
-                        <ComboBox x:Name="NewMinCombo" Grid.Column="4" Width="64" />
-                        <Button x:Name="NewNoDueBtn" Grid.Column="6" Style="{StaticResource GhostBtn}"
-                                VerticalAlignment="Center" Click="NewNoDueBtn_Click" />
-                    </Grid>
 
-                    <Grid Margin="2,14,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <CheckBox x:Name="NewRemindToggle" Grid.Column="0"
-                                  Style="{StaticResource SwitchCheck}" VerticalAlignment="Center" />
-                        <TextBlock x:Name="NewRemindTextTb" Grid.Column="2" FontSize="12.5"
-                                   Foreground="{DynamicResource TextBody}" VerticalAlignment="Center" />
-                    </Grid>
+                    <!-- 标签（流式胶囊 + “＋ 标签”输入） -->
+                    <WrapPanel Margin="0,9,0,0">
+                        <ItemsControl x:Name="NewTagList" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource Pill}" CornerRadius="5"
+                                            Padding="7,2" Margin="0,0,4,4">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding}" FontSize="10.5"
+                                                       Foreground="{DynamicResource TextBody}"
+                                                       VerticalAlignment="Center" />
+                                            <Button Content="✕" FontSize="8.5" Margin="4,0,-2,0"
+                                                    Style="{StaticResource GhostBtn}"
+                                                    Click="NewTagRemove_Click" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Grid Width="74" Margin="0,0,0,4" VerticalAlignment="Center">
+                            <TextBox x:Name="NewTagBox" FontSize="11.5"
+                                     VerticalContentAlignment="Center"
+                                     KeyDown="NewTagBox_KeyDown"
+                                     ToolTip="{Binding [TagAddTip], Source={x:Static svc:Loc.Instance}}">
+                                <TextBox.Template>
+                                    <ControlTemplate TargetType="TextBox">
+                                        <Border Background="{DynamicResource Card}"
+                                                BorderBrush="{DynamicResource Outline}" BorderThickness="1"
+                                                CornerRadius="6" Padding="6,3">
+                                            <ScrollViewer x:Name="PART_ContentHost"
+                                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                          HorizontalAlignment="Left" />
+                                        </Border>
+                                    </ControlTemplate>
+                                </TextBox.Template>
+                            </TextBox>
+                            <TextBlock Text="＋ 标签" IsHitTestVisible="False" FontSize="11"
+                                       Foreground="{DynamicResource TextFaint}"
+                                       VerticalAlignment="Center" Margin="7,0,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=NewTagBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </WrapPanel>
 
                     <TextBlock x:Name="NewPriorityLabelTb" Style="{StaticResource DetailLabel}" />
                     <Border Background="{DynamicResource Pill}" CornerRadius="9" Padding="3"
@@ -1112,27 +993,6 @@
                         </UniformGrid>
                     </Border>
 
-                    <TextBlock x:Name="NewSubsLabelTb" Style="{StaticResource DetailLabel}" />
-                    <ItemsControl x:Name="NewSubList" ItemTemplate="{StaticResource SubEditRow}" />
-                    <Grid Margin="0,2,0,4">
-                        <TextBox x:Name="NewSubBox" Style="{StaticResource SubAddBox}"
-                                 KeyDown="NewSubBox_KeyDown" />
-                        <TextBlock x:Name="NewSubHintTb"
-                                   Foreground="{DynamicResource TextFaint}" FontSize="12"
-                                   IsHitTestVisible="False" VerticalAlignment="Center"
-                                   Margin="12,0,0,0">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Text, ElementName=NewSubBox}" Value="">
-                                            <Setter Property="Visibility" Value="Visible" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                    </Grid>
                 </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -1157,9 +1017,6 @@
                 </UniformGrid>
             </Border>
             <StackPanel Grid.Column="2" Orientation="Horizontal">
-                <Button x:Name="CalendarViewBtn" Style="{StaticResource ChipBtn}"
-                        Content="日历" Click="CalendarViewBtn_Click" Margin="0,0,8,0"
-                        VerticalAlignment="Stretch" />
                 <Button x:Name="ToggleAllBtn" Style="{StaticResource ChipBtn}"
                         Content="全部收起" Click="ToggleAllBtn_Click" Visibility="Collapsed"
                         VerticalAlignment="Stretch" />
@@ -1168,43 +1025,6 @@
 
         <!-- ======== 列表 ======== -->
         <Grid Grid.Row="3" Margin="20,0,20,0">
-            <!-- 日历视图（与列表互斥显示）：格子区自适应剩余高度，明细卡固定在底部始终可见 -->
-            <Grid x:Name="CalendarPanel" Visibility="Collapsed">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <Button x:Name="CalPrevBtn" Style="{StaticResource ChipBtn}" Content="&#xE76B;"
-                                FontFamily="{StaticResource IconFont}" FontSize="10" Padding="9,6"
-                                Click="CalPrevBtn_Click" />
-                        <TextBlock x:Name="CalTitle" FontSize="15" FontWeight="SemiBold" Margin="12,0"
-                                   Foreground="{DynamicResource TextMain}" VerticalAlignment="Center" />
-                        <Button x:Name="CalNextBtn" Style="{StaticResource ChipBtn}" Content="&#xE76C;"
-                                FontFamily="{StaticResource IconFont}" FontSize="10" Padding="9,6"
-                                Click="CalNextBtn_Click" />
-                    </StackPanel>
-                    <Button x:Name="CalTodayBtn" Style="{StaticResource ChipBtn}" HorizontalAlignment="Right"
-                            Content="今天" Click="CalTodayBtn_Click" />
-                </Grid>
-                <UniformGrid x:Name="CalWeekHeader" Grid.Row="1" Columns="7" Margin="0,0,0,4" />
-                <UniformGrid x:Name="CalDays" Grid.Row="2" Columns="7" />
-                <Border x:Name="CalDetailCard" Grid.Row="3" Background="{DynamicResource Card}" CornerRadius="12"
-                        Padding="12,10" Margin="0,12,0,0" Visibility="Collapsed"
-                        BorderBrush="{DynamicResource Line}" BorderThickness="1.2"
-                        MaxHeight="170">
-                    <Border.Effect>
-                        <DropShadowEffect BlurRadius="14" ShadowDepth="2" Direction="270"
-                                          Opacity="0.08" Color="#3A4160" />
-                    </Border.Effect>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <StackPanel x:Name="CalTaskList" />
-                    </ScrollViewer>
-                </Border>
-            </Grid>
             <ScrollViewer VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
                 <ItemsControl x:Name="ListItems" ItemTemplate="{StaticResource TodoCard}"
@@ -1234,7 +1054,7 @@
                 <TextBlock x:Name="EmptyHintTb" Text="在上方输入一条待办，开始规划今天" FontSize="12"
                            Foreground="{DynamicResource TextFaint}"
                            HorizontalAlignment="Center" Margin="0,5,0,0" />
-                <TextBlock x:Name="EmptyHint2Tb" Text="单击卡片可设置截止时间、提醒与子任务" FontSize="11"
+                <TextBlock x:Name="EmptyHint2Tb" Text="单击卡片可展开详情、标签与子任务" FontSize="11"
                            Foreground="{DynamicResource TextFaint}"
                            HorizontalAlignment="Center" Margin="0,3,0,0" />
             </StackPanel>
@@ -1247,7 +1067,7 @@
             <Grid Margin="2,9,2,0">
                 <TextBlock x:Name="DoneText" Text="已完成 0 / 0" FontSize="12"
                            Foreground="{DynamicResource TextSub}" VerticalAlignment="Center" />
-                <Button x:Name="ClearDoneBtn" Style="{StaticResource GhostBtn}"
+                <Button x:Name="ClearDoneBtn" Style="{StaticResource GhostBtn}" VerticalAlignment="Center"
                         Content="清除已完成" HorizontalAlignment="Right"
                         Visibility="Collapsed" Click="ClearDoneBtn_Click" />
             </Grid>
@@ -1257,209 +1077,14 @@
 
         </Grid><!-- /主内容区 -->
 
-        <!-- ======== 到期提醒横幅 ======== -->
-        <Grid x:Name="BannerHost" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed"
-              VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,10,0,0">
-            <Border x:Name="BannerCard" CornerRadius="14" Padding="16,11" MinWidth="330" Opacity="1">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                        <GradientStop Color="#5B7CFF" />
-                        <GradientStop Color="#8B5CF6" Offset="1" />
-                    </LinearGradientBrush>
-                </Border.Background>
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.35" Color="#3A3E6E" />
-                </Border.Effect>
-                <Border.RenderTransform>
-                    <TranslateTransform x:Name="BannerShift" />
-                </Border.RenderTransform>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Grid Grid.Column="0" Width="20" Height="20" VerticalAlignment="Center">
-                        <Ellipse Stroke="White" StrokeThickness="1.6" />
-                        <Line X1="10" Y1="5.5" X2="10" Y2="10" Stroke="White" StrokeThickness="1.6"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                        <Line X1="10" Y1="10" X2="13.5" Y2="8.2" Stroke="White" StrokeThickness="1.6"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                    </Grid>
-                    <StackPanel Grid.Column="1" Margin="10,0,12,0" VerticalAlignment="Center">
-                        <TextBlock x:Name="BannerTitleTb" Text="待办提醒" Foreground="White"
-                                   FontSize="13" FontWeight="SemiBold" />
-                        <TextBlock x:Name="BannerMsg" Text="" Foreground="#E6E9FF" FontSize="11.5"
-                                   MaxWidth="230" TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                    <Button x:Name="BannerViewBtn" Grid.Column="2" Style="{StaticResource BannerChipBtn}"
-                            Content="查看" Click="BannerViewBtn_Click" VerticalAlignment="Center" />
-                    <Button Grid.Column="3" Style="{StaticResource BannerCloseBtn}"
-                            Content="✕" Click="BannerCloseBtn_Click" VerticalAlignment="Center" Margin="6,0,0,0" />
-                </Grid>
-            </Border>
-        </Grid>
-
         <!-- ======== 详情浮层（实时编辑，任意层级） ======== -->
-        <Grid x:Name="DetailOverlay" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed">
-            <Border x:Name="OverlayMask" Background="#73161C2E" Opacity="0"
-                    MouseLeftButtonUp="OverlayMask_MouseLeftButtonUp" />
-            <Border x:Name="OverlayCard" Width="382" CornerRadius="16" Background="{DynamicResource Card}"
-                    Padding="22,18" Margin="0,16" VerticalAlignment="Center" HorizontalAlignment="Center"
-                    MaxHeight="{Binding ActualHeight, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}"
-                    Opacity="0" RenderTransformOrigin="0.5,0.5">
-                <Border.RenderTransform>
-                    <ScaleTransform x:Name="OverlayScale" ScaleX="0.96" ScaleY="0.96" />
-                </Border.RenderTransform>
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="30" ShadowDepth="8" Opacity="0.30" Color="#1A2038" />
-                </Border.Effect>
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <Grid>
-                            <TextBlock x:Name="DetailTitleTb" Text="待办详情" FontSize="11.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextSub}"
-                                       VerticalAlignment="Center" />
-                            <Button Style="{StaticResource GhostBtn}" Content="✕" FontSize="11"
-                                    HorizontalAlignment="Right" Click="DetailCloseBtn_Click" />
-                        </Grid>
-
-                        <TextBlock x:Name="BreadcrumbTb" Text="" FontSize="11"
-                                   Foreground="{DynamicResource TextSub}" Margin="1,8,0,0"
-                                   TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
-
-                        <TextBox x:Name="DetailTitleBox" Style="{StaticResource OverlayTitleBox}"
-                                 Margin="0,6,0,0"
-                                 Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
-
-                        <!-- 详细内容：标签 + 工具栏 -->
-                        <Grid>
-                            <TextBlock x:Name="DetailsLabelTb" Style="{StaticResource DetailLabel}"
-                                       Margin="2,16,0,6" VerticalAlignment="Center" />
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
-                                        VerticalAlignment="Center" Margin="0,10,0,0">
-                                <Button x:Name="InsertImageBtn" Style="{StaticResource ChipBtn}"
-                                        Content="插入图片" Click="InsertImageBtn_Click" Margin="0,0,6,0" />
-                                <Button x:Name="ImportMdBtn" Style="{StaticResource ChipBtn}"
-                                        Content="导入 MD" Click="ImportMdBtn_Click" Margin="0,0,6,0" />
-                                <Button x:Name="PreviewBtn" Style="{StaticResource ChipBtn}"
-                                        Content="预览" Click="PreviewBtn_Click" />
-                            </StackPanel>
-                        </Grid>
-
-                        <Grid>
-                            <TextBox x:Name="DetailNotesBox" Style="{StaticResource NotesBox}"
-                                     Text="{Binding Details, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                                     PreviewKeyDown="NotesBox_PreviewKeyDown" />
-                            <Border x:Name="NotesPreviewHost" Visibility="Collapsed"
-                                    Background="{DynamicResource Surface2}" CornerRadius="9" Padding="10,8"
-                                    MinHeight="86" MaxHeight="170">
-                                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                    <StackPanel x:Name="NotesPreviewPanel" />
-                                </ScrollViewer>
-                            </Border>
-                        </Grid>
-
-                        <TextBlock x:Name="DueLabelTb" Style="{StaticResource DetailLabel}" Text="截止时间" />
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <views:DateField x:Name="DueDatePicker" Grid.Column="0" />
-                            <ComboBox x:Name="HourCombo" Grid.Column="2" Width="64"
-                                      SelectionChanged="TimeCombo_SelectionChanged" />
-                            <ComboBox x:Name="MinCombo" Grid.Column="4" Width="64"
-                                      SelectionChanged="TimeCombo_SelectionChanged" />
-                            <Button x:Name="NoDeadlineBtn" Grid.Column="6" Style="{StaticResource GhostBtn}"
-                                    Content="无期限" VerticalAlignment="Center"
-                                    Click="ClearDueBtn_Click" />
-                        </Grid>
-
-                        <TextBlock x:Name="RemindLabelTb" Style="{StaticResource DetailLabel}" Text="提醒" />
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="12" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <CheckBox x:Name="RemindToggle" Grid.Column="0"
-                                      Style="{StaticResource SwitchCheck}" VerticalAlignment="Center"
-                                      IsChecked="{Binding Remind, Mode=TwoWay}" />
-                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                                <TextBlock x:Name="RemindTextTb" Text="到点提醒我" FontSize="13"
-                                           Foreground="{DynamicResource TextBody}" />
-                                <TextBlock x:Name="RemindHintTb" Text="到达截止时间时弹出提醒（需保持应用开启）"
-                                           FontSize="11" Foreground="{DynamicResource TextFaint}"
-                                           Margin="0,2,0,0" TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Grid>
-
-                        <TextBlock x:Name="PriorityLabelTb" Style="{StaticResource DetailLabel}" Text="优先级" />
-                        <Border Background="{DynamicResource Pill}" CornerRadius="9" Padding="3"
-                                HorizontalAlignment="Left">
-                            <UniformGrid Columns="4">
-                                <RadioButton x:Name="DetailP0" Style="{StaticResource SegButton}"
-                                             GroupName="detailPriority" Content="无" Checked="DetailP_Checked" />
-                                <RadioButton x:Name="DetailP1" Style="{StaticResource SegButton}"
-                                             GroupName="detailPriority" Content="低" Checked="DetailP_Checked" />
-                                <RadioButton x:Name="DetailP2" Style="{StaticResource SegButton}"
-                                             GroupName="detailPriority" Content="中" Checked="DetailP_Checked" />
-                                <RadioButton x:Name="DetailP3" Style="{StaticResource SegButton}"
-                                             GroupName="detailPriority" Content="高" Checked="DetailP_Checked" />
-                            </UniformGrid>
-                        </Border>
-
-                        <!-- 子任务（实时增删，点卡片可进入子任务自己的详情） -->
-                        <TextBlock x:Name="SubtasksLabelTb" Style="{StaticResource DetailLabel}" Text="子任务" />
-                        <ItemsControl x:Name="OverlaySubList" ItemTemplate="{StaticResource SubEditRow}" />
-                        <Grid Margin="0,2,0,0">
-                            <TextBox x:Name="AddSubtaskBox" Style="{StaticResource SubAddBox}"
-                                     KeyDown="AddSubtaskBox_KeyDown" />
-                            <TextBlock x:Name="AddSubHintTb" Text="添加子任务，按 Enter 确认"
-                                       Foreground="{DynamicResource TextFaint}" FontSize="12"
-                                       IsHitTestVisible="False" VerticalAlignment="Center"
-                                       Margin="12,0,0,0">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Text, ElementName=AddSubtaskBox}" Value="">
-                                                <Setter Property="Visibility" Value="Visible" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </Grid>
-
-                        <TextBlock x:Name="DetailMetaText" FontSize="11"
-                                   Foreground="{DynamicResource TextFaint}" Margin="2,18,0,0" />
-                        <Border Height="1" Background="{DynamicResource Line}" Margin="0,12,0,14" />
-                        <Grid>
-                            <Button x:Name="DetailDeleteBtn" Style="{StaticResource GhostBtn}"
-                                    Content="删除" HorizontalAlignment="Left"
-                                    Click="DetailDeleteBtn_Click" VerticalAlignment="Center" />
-                            <Button x:Name="DetailDoneBtn" Style="{StaticResource AddBtn}"
-                                    Content="完成" HorizontalAlignment="Right"
-                                    Click="DetailDoneBtn_Click" />
-                        </Grid>
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
-        </Grid>
 
         <!-- ======== 设置浮层 ======== -->
         <Grid x:Name="SettingsOverlay" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed">
             <Border x:Name="SettingsMask" Background="#73161C2E" Opacity="0"
                     MouseLeftButtonUp="SettingsMask_MouseLeftButtonUp" />
             <Border x:Name="SettingsCard" Width="360" CornerRadius="16" Background="{DynamicResource Card}"
+                    BorderBrush="{DynamicResource Outline}" BorderThickness="1"
                     Padding="22,18" Margin="0,16" VerticalAlignment="Center" HorizontalAlignment="Center"
                     MaxHeight="{Binding ActualHeight, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}"
                     Opacity="0" RenderTransformOrigin="0.5,0.5">

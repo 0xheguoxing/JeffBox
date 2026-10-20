@@ -53,9 +53,9 @@ public partial class MainWindow : Window
     readonly ObservableCollection<TodoViewModel> _all = new();   // 仅根任务
     readonly ObservableCollection<TodoViewModel> _view = new();
 
-    // 完整创建卡：草稿附件目录 + 子任务草稿
+    // 完整创建卡：草稿附件目录 + 草稿标签
     Guid _newDraftId = Guid.NewGuid();
-    readonly ObservableCollection<TodoViewModel> _newSubs = new();
+    readonly ObservableCollection<string> NewDraftTags = new();
     bool _newPreviewOn;
 
     TodoFilter _filter = TodoFilter.All;
@@ -67,11 +67,6 @@ public partial class MainWindow : Window
     readonly DispatcherTimer _popupCloseTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     Border? _hoverCard;
 
-    // 到期提醒（递归覆盖所有层级）
-    readonly DispatcherTimer _reminderTimer = new() { Interval = TimeSpan.FromSeconds(20) };
-    readonly HashSet<Guid> _notified = new();
-    readonly DispatcherTimer _bannerTimer = new() { Interval = TimeSpan.FromSeconds(8) };
-    TodoViewModel? _bannerVm;
 
     // 防抖 + 后台写盘：改动先标脏，静默 400ms 后在后台线程落盘；写盘期间的新改动会再补一轮。
     // 快照在 UI 线程拍（状态一致），文件 IO 串行放后台，避免连点勾选框时反复全量同步写卡 UI
@@ -79,13 +74,9 @@ public partial class MainWindow : Window
     bool _dirty;
     Task _flushTask = Task.CompletedTask;
 
-    // 详情浮层（实时编辑）
-    TodoViewModel? _detailVm;
-    bool _populatingDetail;
-    bool _notesPreviewOn;
-    long _overlayShownAt;      // 防双击误关浮层
+    // 当前展开内联详情的任务（同一时间只开一个）
+    TodoViewModel? _inlineVm;
     long _settingsShownAt;     // 设置浮层独立计时
-    int _bannerGen;            // 横幅动画代际，防止旧动画 Completed 误关新横幅
 
     // 托盘 / 快捷键 / 设置
     AppSettings _settings = new();
@@ -105,18 +96,10 @@ public partial class MainWindow : Window
 
         InitializeComponent();
         ListItems.ItemsSource = _view;
+        NewTagList.ItemsSource = NewDraftTags;
         _all.CollectionChanged += (_, _) => UpdateStats();
 
-        HourCombo.ItemsSource = Enumerable.Range(0, 24).Select(i => $"{i:00}").ToList();
-        MinCombo.ItemsSource = Enumerable.Range(0, 12).Select(i => $"{i * 5:00}").ToList();
-        NewHourCombo.ItemsSource = HourCombo.ItemsSource;
-        NewMinCombo.ItemsSource = MinCombo.ItemsSource;
-        NewHourCombo.SelectedIndex = 9;
-        NewMinCombo.SelectedIndex = 0;
-        NewSubList.ItemsSource = _newSubs;
-
-        // 详情编辑框支持 Ctrl+V 直接粘贴图片
-        DataObject.AddPastingHandler(DetailNotesBox, OnNotesPaste);
+        // 详情编辑框支持 Ctrl+V 直接粘贴图片（内嵌详情框通过样式 EventSetter 挂同一处理）
         DataObject.AddPastingHandler(NewDetailsBox, OnNotesPaste);
 
         _hoverTimer.Tick += (_, _) => OpenPreview();
@@ -126,8 +109,6 @@ public partial class MainWindow : Window
             ClosePreview();
             _hoverCard = null;
         };
-        _reminderTimer.Tick += (_, _) => CheckReminders();
-        _bannerTimer.Tick += (_, _) => HideBanner();
         _saveDebounce.Tick += async (_, _) => await FlushNowAsync();
         // 窗口失活（点桌面/任务栏/Alt+Tab）时收起悬停预览，避免弹窗残留在最前
         Deactivated += (_, _) =>
@@ -150,15 +131,8 @@ public partial class MainWindow : Window
             _all.Add(vm);
         }
 
-        // 启动前就已过期的提醒不再弹横幅，只通过卡片红色胶囊提示
-        var now = DateTime.Now;
-        foreach (var vm in _all.SelectMany(v => v.Flatten()))
-            if (vm.Remind && vm.DueAt is DateTime d && d <= now)
-                _notified.Add(vm.Id);
-
         _ready = true;
         ApplyFilter();
-        _reminderTimer.Start();
         if (TodoStorage.LastLoadFailed)
         {
             _trayTipShown = true;
@@ -188,7 +162,6 @@ public partial class MainWindow : Window
         catch { }
         _hookSource = HwndSource.FromHwnd(_hwnd);
         _hookSource?.AddHook(WndProc);
-        DueDatePicker.DatePicked += DueDatePicker_DatePicked;
         RestoreWindowBounds();
         // 打开位置：鼠标屏居中 / 鼠标附近（设置项）。静默启动不定屏，等用户真正呼出再说
         if (!App.StartMinimized) ApplyOpenPosition();
@@ -268,11 +241,6 @@ public partial class MainWindow : Window
                 Save();
                 ApplyFilter();
                 break;
-            case nameof(TodoViewModel.DueAt):
-            case nameof(TodoViewModel.Remind):
-                _notified.Remove(vm.Id); // 设置变化后允许将来再次提醒
-                Save();
-                break;
             case nameof(TodoViewModel.Text):
             case nameof(TodoViewModel.Details):
             case nameof(TodoViewModel.Priority):
@@ -298,16 +266,7 @@ public partial class MainWindow : Window
             Details = NewDetailsBox.Text.Trim(),
             Priority = _newPriority,
         };
-
-        if (NewDatePicker.SelectedDate is DateTime dd)
-        {
-            int h = NewHourCombo.SelectedIndex >= 0 ? NewHourCombo.SelectedIndex : 9;
-            int m = NewMinCombo.SelectedIndex >= 0 ? NewMinCombo.SelectedIndex * 5 : 0;
-            item.DueAt = dd.Date.AddHours(h).AddMinutes(m);
-        }
-        item.Remind = NewRemindToggle.IsChecked == true;
-        foreach (var s in _newSubs)
-            item.Children.Add(new TodoItem { Text = s.Text.Trim(), IsDone = s.IsDone });
+        if (NewDraftTags.Count > 0) item.Tags = NewDraftTags.ToList();
 
         var vm = new TodoViewModel(item);
         Attach(vm);
@@ -319,13 +278,8 @@ public partial class MainWindow : Window
         _newDraftId = Guid.NewGuid();
         InputBox.Clear();
         NewDetailsBox.Clear();
-        NewSubBox.Clear();
-        _newSubs.Clear();
-        UpdateNewSubsLabel();
-        NewDatePicker.SelectedDate = null;
-        NewHourCombo.SelectedIndex = 9;
-        NewMinCombo.SelectedIndex = 0;
-        NewRemindToggle.IsChecked = false;
+        NewTagBox.Clear();
+        NewDraftTags.Clear();
         SetNewPriorityRadios(_newPriority);
         SetNewPreview(false);
         NewDetailsPanel.Visibility = Visibility.Collapsed;
@@ -380,12 +334,6 @@ public partial class MainWindow : Window
         PriorityLabel.Text = Loc.PriorityName(p);
     }
 
-    void NewNoDueBtn_Click(object sender, RoutedEventArgs e)
-    {
-        NewDatePicker.SelectedDate = null;
-        NewDatePicker.FocusField();
-    }
-
     void NewInsertImageBtn_Click(object sender, RoutedEventArgs e)
         => InsertImageFor(NewDetailsBox, _newDraftId);
 
@@ -408,20 +356,30 @@ public partial class MainWindow : Window
         NewPreviewBtn.Content = Loc.Get(on ? "Edit" : "Preview");
     }
 
-    void NewSubBox_KeyDown(object sender, KeyEventArgs e)
+    // ---------- 创建卡标签 ----------
+
+    void NewTagBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
-        var text = NewSubBox.Text.Trim();
-        if (text.Length == 0) return;
-        e.Handled = true;
-        _newSubs.Add(new TodoViewModel(new TodoItem { Text = text }));
-        NewSubBox.Clear();
-        UpdateNewSubsLabel();
-        NewSubBox.Focus();
+        var box = (TextBox)sender;
+        var tag = box.Text.Trim();
+        box.Clear();
+        if (tag.Length == 0 || tag.Length > 24) return;
+        if (NewDraftTags.Contains(tag, StringComparer.OrdinalIgnoreCase)) return;
+        NewDraftTags.Add(tag);
+        box.Focus();
     }
 
-    void UpdateNewSubsLabel()
-        => NewSubsLabelTb.Text = $"{Loc.Get("SubtasksLabel")} {_newSubs.Count}";
+    void NewTagRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: string tag } fe) return;
+        var ic = FindParent<ItemsControl>(fe);
+        if (ic?.ItemsSource is ObservableCollection<string> list)
+        {
+            list.Remove(tag);
+            NewDraftTags.Remove(tag);
+        }
+    }
 
     // ---------- 图片：插入 / 粘贴 ----------
 
@@ -459,9 +417,8 @@ public partial class MainWindow : Window
         if (sender is not TextBox box) return;
         try
         {
-            var id = ReferenceEquals(box, DetailNotesBox) && _detailVm != null
-                ? _detailVm.Id
-                : _newDraftId;
+            var vm = box.DataContext as TodoViewModel;
+            var id = vm?.Id ?? _newDraftId;
             if (TryPasteClipboardImage(box, id))
                 e.CancelCommand(); // 已按图片插入，拦下默认的文本/格式粘贴
         }
@@ -478,9 +435,8 @@ public partial class MainWindow : Window
         if (sender is not TextBox box) return;
         try
         {
-            var id = ReferenceEquals(box, DetailNotesBox) && _detailVm != null
-                ? _detailVm.Id
-                : _newDraftId;
+            var vm = box.DataContext as TodoViewModel;
+            var id = vm?.Id ?? _newDraftId;
             if (TryPasteClipboardImage(box, id))
             {
                 e.Handled = true;
@@ -709,7 +665,7 @@ public partial class MainWindow : Window
         ClosePreview();
         if (sender is Border { DataContext: TodoViewModel vm })
         {
-            OpenDetail(vm);
+            ToggleDetail(vm);
             e.Handled = true;
         }
     }
@@ -718,11 +674,32 @@ public partial class MainWindow : Window
     {
         if (sender is FrameworkElement { DataContext: TodoViewModel vm })
         {
-            if (vm.HasSubs)
-                vm.IsExpanded = !vm.IsExpanded;
-            else
-                OpenDetail(vm);
+            ToggleDetail(vm);
+            // 展开时连带子列表；收起时子列表一并收起（真正的双向开关）
+            vm.IsExpanded = vm.IsDetailOpen && vm.HasSubs;
         }
+    }
+
+    void InlinePanel_Click(object sender, MouseButtonEventArgs e) => e.Handled = true;
+
+    /// <summary>内联详情：编辑 ⇄ Markdown 预览切换（渲染一次，切回编辑不丢内容）</summary>
+    void InlinePreviewToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not TodoViewModel vm) return;
+        var fe = (FrameworkElement)sender;
+        if (fe.FindName("InlineDetailsBox") is not TextBox box) return;
+        if (fe.FindName("InlinePreviewHost") is not StackPanel host) return;
+        if (fe.FindName("InlinePreviewToggle") is not System.Windows.Controls.ContentControl btn) return;
+
+        var toPreview = host.Visibility != Visibility.Visible;
+        if (toPreview)
+        {
+            box.GetBindingExpression(TextBox.TextProperty)?.UpdateSource(); // 先把未失焦的编辑落盘
+            MarkdownLite.Render(host, vm.Details, name => Attachments.GetPath(vm.Id, name));
+        }
+        box.Visibility = toPreview ? Visibility.Collapsed : Visibility.Visible;
+        host.Visibility = toPreview ? Visibility.Visible : Visibility.Collapsed;
+        btn.Content = Loc.Get(toPreview ? "Edit" : "Preview");
     }
 
     void OpenPreview()
@@ -739,205 +716,85 @@ public partial class MainWindow : Window
             popup.IsOpen = false;
     }
 
-    // ---------- 详情浮层（实时编辑，任意层级） ----------
+    // ---------- 内联详情（卡片内展开编辑） ----------
 
-    void OpenDetail(TodoViewModel vm)
+    void ToggleDetail(TodoViewModel vm)
     {
-        _detailVm = vm;
-        _populatingDetail = true;
-
-        DetailOverlay.DataContext = vm;
-        BreadcrumbTb.Text = vm.Parent == null ? "" : Loc.F("BreadcrumbFmt", vm.Breadcrumb);
-        BreadcrumbTb.Visibility = vm.Parent == null ? Visibility.Collapsed : Visibility.Visible;
-
-        DueDatePicker.SelectedDate = vm.DueAt?.Date;
-        HourCombo.SelectedIndex = vm.DueAt?.Hour ?? 9;
-        MinCombo.SelectedIndex = vm.DueAt is { } d ? Math.Clamp((int)Math.Round(d.Minute / 5.0), 0, 11) : 0;
-        SetPriorityRadio(vm.Priority);
-
-        OverlaySubList.ItemsSource = vm.Children;
-        SubtasksLabelTb.Text = $"{Loc.Get("SubtasksLabel")} {vm.Children.Count}";
-        AddSubtaskBox.Clear();
-
-        DetailMetaText.Text = Loc.F("CreatedAtFmt", vm.CreatedText);
-        SetNotesPreview(false);
-        _populatingDetail = false;
-
-        DetailOverlay.Visibility = Visibility.Visible;
-        _overlayShownAt = Environment.TickCount64;
-        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180));
-        var scale = new DoubleAnimation(0.96, 1, TimeSpan.FromMilliseconds(220))
-        {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        OverlayMask.BeginAnimation(UIElement.OpacityProperty, fade);
-        OverlayCard.BeginAnimation(UIElement.OpacityProperty, fade);
-        OverlayScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
-        OverlayScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
-
-        DetailTitleBox.Focus();
-        DetailTitleBox.CaretIndex = DetailTitleBox.Text.Length;
+        if (_inlineVm != null && _inlineVm != vm)
+            _inlineVm.IsDetailOpen = false; // 同时只开一个，避免列表里堆一排编辑器
+        vm.IsDetailOpen = !vm.IsDetailOpen;
+        _inlineVm = vm.IsDetailOpen ? vm : null;
     }
 
-    void CloseDetail()
+    /// <summary>横幅/日历等入口：先保证任务可见（退出日历、切回全部筛选）再展开内联详情</summary>
+    void EnsureDetailVisible(TodoViewModel vm)
     {
-        // 标题/详情是 LostFocus 触发更新：Esc、遮罩、✕ 都不会转移焦点，
-        // 必须在这里强制写回数据源，否则最后一段编辑会丢
-        DetailTitleBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
-        DetailNotesBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
-        Save();
-        DetailOverlay.Visibility = Visibility.Collapsed;
-        _detailVm = null;
-    }
-
-    void DueDatePicker_DatePicked() => CommitDue();
-
-    void TimeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) => CommitDue();
-
-    void CommitDue()
-    {
-        if (_populatingDetail || _detailVm == null) return;
-        DateTime? due = DueDatePicker.SelectedDate;
-        if (due is DateTime dd)
+        var root = vm;
+        while (root.Parent != null) root = root.Parent;
+        if (!MatchesRoot(root))
         {
-            int h = HourCombo.SelectedIndex >= 0 ? HourCombo.SelectedIndex : 9;
-            int m = MinCombo.SelectedIndex >= 0 ? MinCombo.SelectedIndex * 5 : 0;
-            due = dd.Date.AddHours(h).AddMinutes(m);
+            _filter = TodoFilter.All;
+            FilterAll.IsChecked = true;
         }
-        _detailVm.DueAt = due;
+        ApplyFilter();
+        if (_inlineVm != null && _inlineVm != vm) _inlineVm.IsDetailOpen = false;
+        vm.IsDetailOpen = true;
+        vm.IsExpanded = true;
+        _inlineVm = vm;
     }
 
-    void DetailP_Checked(object sender, RoutedEventArgs e)
+    void InlineTagBox_KeyDown(object sender, KeyEventArgs e)
     {
-        if (_populatingDetail || _detailVm == null) return;
-        _detailVm.Priority = CheckedPriority();
-    }
-
-    int CheckedPriority()
-    {
-        if (DetailP1.IsChecked == true) return 1;
-        if (DetailP2.IsChecked == true) return 2;
-        if (DetailP3.IsChecked == true) return 3;
-        return 0;
-    }
-
-    void SetPriorityRadio(int p)
-    {
-        DetailP0.IsChecked = p == 0;
-        DetailP1.IsChecked = p == 1;
-        DetailP2.IsChecked = p == 2;
-        DetailP3.IsChecked = p == 3;
-    }
-
-    void OverlaySubDelete_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { DataContext: TodoViewModel sub }) return;
-        // 详情浮层子任务 vs 创建卡子任务草稿，按归属分流
-        if (_detailVm != null && _detailVm.Children.Contains(sub))
-        {
-            RemoveVm(sub);
-            SubtasksLabelTb.Text = $"{Loc.Get("SubtasksLabel")} {_detailVm.Children.Count}";
-        }
-        else if (_newSubs.Contains(sub))
-        {
-            _newSubs.Remove(sub);
-            UpdateNewSubsLabel();
-        }
-    }
-
-    void AddSubtaskBox_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter || _detailVm == null) return;
-        var text = AddSubtaskBox.Text.Trim();
-        if (text.Length == 0) return;
+        if (e.Key != Key.Enter) return;
+        if ((sender as FrameworkElement)?.DataContext is not TodoViewModel vm) return;
         e.Handled = true;
-        var child = _detailVm.AddChild(new TodoItem { Text = text });
-        Attach(child);
+        var box = (TextBox)sender;
+        var tag = box.Text.Trim();
+        box.Clear();
+        if (tag.Length == 0 || tag.Length > 24) return;
+        vm.Item.Tags ??= new List<string>();
+        if (vm.Item.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)) return;
+        vm.Item.Tags.Add(tag);
+        vm.ReloadTags();
         Save();
-        AddSubtaskBox.Clear();
-        SubtasksLabelTb.Text = $"{Loc.Get("SubtasksLabel")} {_detailVm.Children.Count}";
-        AddSubtaskBox.Focus();
+        box.Focus();
     }
 
-    void SetNotesPreview(bool on)
+    void InlineTagRemove_Click(object sender, RoutedEventArgs e)
     {
-        _notesPreviewOn = on;
-        DetailNotesBox.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-        NotesPreviewHost.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-        PreviewBtn.Content = Loc.Get(on ? "Edit" : "Preview");
+        if (sender is not FrameworkElement { DataContext: string tag } fe) return;
+        if (fe.Tag is not TodoViewModel vm) return;
+        vm.Item.Tags?.RemoveAll(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
+        vm.ReloadTags();
+        Save();
     }
 
-    void InsertImageBtn_Click(object sender, RoutedEventArgs e)
+    void InlineDone_Click(object sender, RoutedEventArgs e)
     {
-        if (_detailVm != null)
-            InsertImageFor(DetailNotesBox, _detailVm.Id);
-    }
-
-    void ImportMdBtn_Click(object sender, RoutedEventArgs e)
-    {
-        var ofd = new OpenFileDialog
+        if ((sender as FrameworkElement)?.DataContext is not TodoViewModel vm) return;
+        vm.IsDone = true;
+        if (_inlineVm == vm)
         {
-            Filter = Loc.Get("FilterMd"),
-            Title = Loc.Get("ImportMd"),
-        };
-        if (ofd.ShowDialog(this) != true) return;
-        try
-        {
-            DetailNotesBox.Text = File.ReadAllText(ofd.FileName);
-            DetailNotesBox.CaretIndex = DetailNotesBox.Text.Length;
-            DetailNotesBox.Focus();
-        }
-        catch
-        {
-            _tray?.ShowBalloonTip(2500, Loc.Get("ImportFailed"), ofd.FileName,
-                System.Windows.Forms.ToolTipIcon.Warning);
+            vm.IsDetailOpen = false;
+            _inlineVm = null;
         }
     }
 
-    void PreviewBtn_Click(object sender, RoutedEventArgs e)
+    void InlineDelete_Click(object sender, RoutedEventArgs e)
     {
-        if (_detailVm == null) return;
-        if (!_notesPreviewOn)
-        {
-            DetailNotesBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
-            MarkdownLite.Render(NotesPreviewPanel, DetailNotesBox.Text, name => Attachments.GetPath(_detailVm.Id, name));
-            SetNotesPreview(true);
-        }
-        else
-            SetNotesPreview(false);
-    }
-
-    void OverlayMask_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (Environment.TickCount64 - _overlayShownAt < 400) return; // 防双击误关
-        CloseDetail();
-    }
-
-    void DetailCloseBtn_Click(object sender, RoutedEventArgs e) => CloseDetail();
-
-    void DetailDoneBtn_Click(object sender, RoutedEventArgs e) => CloseDetail();
-
-    void DetailDeleteBtn_Click(object sender, RoutedEventArgs e)
-    {
-        if (_detailVm is { } vm)
-        {
-            CloseDetail();
-            RemoveVm(vm);
-        }
-    }
-
-    void ClearDueBtn_Click(object sender, RoutedEventArgs e)
-    {
-        DueDatePicker.SelectedDate = null;
-        DueDatePicker.FocusField();
+        if ((sender as FrameworkElement)?.DataContext is not TodoViewModel vm) return;
+        if (_inlineVm != null && (_inlineVm == vm || vm.Flatten().Contains(_inlineVm)))
+            _inlineVm = null;
+        RemoveVm(vm);
     }
 
     void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape) return;
-        if (DetailOverlay.Visibility == Visibility.Visible)
+        if (_inlineVm != null)
         {
-            CloseDetail();
+            _inlineVm.IsDetailOpen = false;
+            _inlineVm = null;
             e.Handled = true;
         }
         else if (SettingsOverlay.Visibility == Visibility.Visible)
@@ -956,268 +813,17 @@ public partial class MainWindow : Window
         ClosePreview();
     }
 
-    /// <summary>点击悬停预览弹窗 = 打开对应待办的详情</summary>
+    /// <summary>点击悬停预览弹窗 = 展开对应待办的内联详情</summary>
     void PreviewPopup_Click(object sender, MouseButtonEventArgs e)
     {
         if (sender is not Border b || b.DataContext is not TodoViewModel vm) return;
         _hoverTimer.Stop();
         _hoverCard = null;
         if (b.Parent is Popup pp) pp.IsOpen = false;
-        OpenDetail(vm);
+        ToggleDetail(vm);
         e.Handled = true;
     }
 
-    // ---------- 日历视图 ----------
-
-    DateTime _calMonth = new(DateTime.Now.Year, DateTime.Now.Month, 1);
-    DateTime? _calSelected;
-    bool _calMode;
-
-    void CalendarViewBtn_Click(object sender, RoutedEventArgs e) => ToggleCalendar();
-
-    void ToggleCalendar()
-    {
-        _calMode = !_calMode;
-        CalendarPanel.Visibility = _calMode ? Visibility.Visible : Visibility.Collapsed;
-        var sv = ListItems.Parent as ScrollViewer;
-        if (sv != null) sv.Visibility = _calMode ? Visibility.Collapsed : Visibility.Visible;
-        EmptyState.Visibility = _calMode ? Visibility.Collapsed : EmptyState.Visibility;
-        CalendarViewBtn.Content = _calMode ? Loc.Get("FilterAll") : Loc.Get("CalView");
-        if (_calMode)
-        {
-            if (_calSelected == null) _calSelected = DateTime.Today;
-            BuildCalendar();
-        }
-        else
-        {
-            ApplyFilter(); // 恢复列表态（含 EmptyState 判定）
-        }
-    }
-
-    void CalPrevBtn_Click(object sender, RoutedEventArgs e)
-    {
-        _calMonth = _calMonth.AddMonths(-1);
-        BuildCalendar();
-    }
-
-    void CalNextBtn_Click(object sender, RoutedEventArgs e)
-    {
-        _calMonth = _calMonth.AddMonths(1);
-        BuildCalendar();
-    }
-
-    void CalTodayBtn_Click(object sender, RoutedEventArgs e)
-    {
-        _calMonth = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
-        _calSelected = DateTime.Today;
-        BuildCalendar();
-    }
-
-    /// <summary>某天的到期任务（树内任意层级）</summary>
-    List<TodoViewModel> TasksOn(DateTime day) =>
-        _all.SelectMany(v => v.Flatten())
-            .Where(v => v.DueAt is DateTime d && d.Date == day)
-            .OrderBy(v => v.DueAt)
-            .ToList();
-
-    void BuildCalendar()
-    {
-        // 标题
-        CalTitle.Text = Loc.Lang == "en"
-            ? _calMonth.ToString("yyyy MMMM", System.Globalization.CultureInfo.InvariantCulture)
-            : _calMonth.Year + "年" + _calMonth.Month + "月";
-
-        // 星期表头（周日开头，与日期选择弹层一致）
-        if (CalWeekHeader.Children.Count == 0)
-        {
-            var names = Loc.Lang == "en"
-                ? new[] { "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" }
-                : new[] { "日", "一", "二", "三", "四", "五", "六" };
-            foreach (var n in names)
-                CalWeekHeader.Children.Add(new TextBlock
-                {
-                    Text = n,
-                    FontSize = 11,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = Theme.Brush("TextSub"),
-                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                });
-        }
-
-        CalDays.Children.Clear();
-        var first = _calMonth;
-        int lead = (int)first.DayOfWeek; // 周日=0
-        int days = DateTime.DaysInMonth(first.Year, first.Month);
-        var today = DateTime.Today;
-        for (int i = 0; i < lead; i++)
-            CalDays.Children.Add(new Border());
-        for (int d = 1; d <= days; d++)
-        {
-            var date = new DateTime(first.Year, first.Month, d);
-            var tasks = TasksOn(date);
-            CalDays.Children.Add(BuildDayCell(date, tasks, today));
-        }
-        UpdateCalDetail();
-    }
-
-    Border BuildDayCell(DateTime date, List<TodoViewModel> tasks, DateTime today)
-    {
-        bool isToday = date == today;
-        bool selected = _calSelected == date;
-        bool overdue = date < today && tasks.Any(t => !t.IsDone);
-
-        var cell = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(5, 3, 5, 4),
-            Margin = new Thickness(1.5),
-            ClipToBounds = true,
-
-            Background = tasks.Count > 0 ? Theme.Brush("Card") : Theme.Brush("Pill"),
-            BorderBrush = selected ? Theme.Brush("Accent") : null,
-            BorderThickness = new Thickness(selected ? 1.6 : 0),
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Tag = date,
-            Effect = tasks.Count > 0
-                ? new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    BlurRadius = 10, ShadowDepth = 1, Direction = 270, Opacity = 0.07, Color = ColorFromHex("#3A4160"),
-                }
-                : null,
-        };
-        var grid = new Grid();
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition());
-        var num = new TextBlock
-        {
-            Text = date.Day.ToString(),
-            FontSize = 12,
-            FontWeight = isToday ? FontWeights.SemiBold : FontWeights.Normal,
-            Foreground = isToday
-                ? Theme.Brush("Accent")
-                : overdue ? Theme.Brush("Danger") : Theme.Brush("TextSub"),
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
-            Margin = new Thickness(0, 0, 2, 2),
-        };
-        Grid.SetRow(num, 0);
-        grid.Children.Add(num);
-
-        var list = new StackPanel();
-        int shown = 0;
-        foreach (var t in tasks)
-        {
-            if (shown >= 2)
-            {
-                list.Children.Add(new TextBlock
-                {
-                    Text = "+" + (tasks.Count - 2),
-                    FontSize = 10,
-                    Foreground = Theme.Brush("TextFaint"),
-                    Margin = new Thickness(2, 1, 0, 0),
-                });
-                break;
-            }
-            list.Children.Add(new TextBlock
-            {
-                Text = (t.IsDone ? "✓ " : "• ") + t.Text,
-                FontSize = 10,
-                Foreground = t.IsDone ? Theme.Brush("TextFaint") : Theme.Brush("TextBody"),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Opacity = t.IsDone ? 0.65 : 1,
-                Margin = new Thickness(2, 0, 0, 0),
-            });
-            shown++;
-        }
-        Grid.SetRow(list, 1);
-        grid.Children.Add(list);
-        cell.Child = grid;
-
-        cell.MouseLeftButtonUp += (_, _) =>
-        {
-            _calSelected = date;
-            BuildCalendar();
-        };
-        return cell;
-    }
-
-    static System.Windows.Media.Color ColorFromHex(string hex) =>
-        (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
-
-    void UpdateCalDetail()
-    {
-        if (_calSelected is not DateTime day)
-        {
-            CalDetailCard.Visibility = Visibility.Collapsed;
-            return;
-        }
-        var tasks = TasksOn(day);
-        CalDetailCard.Visibility = Visibility.Visible;
-        CalTaskList.Children.Clear();
-        var title = new TextBlock
-        {
-            Text = day.ToString(Loc.Lang == "en" ? "ddd, MMM d" : "M月d日 dddd",
-                    Loc.Lang == "en"
-                        ? System.Globalization.CultureInfo.InvariantCulture
-                        : new System.Globalization.CultureInfo("zh-CN"))
-                + " · " + tasks.Count,
-            FontSize = 11.5,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Theme.Brush("TextSub"),
-            Margin = new Thickness(2, 0, 0, 6),
-        };
-        CalTaskList.Children.Add(title);
-        if (tasks.Count == 0)
-        {
-            CalTaskList.Children.Add(new TextBlock
-            {
-                Text = Loc.Get("CalNoDue"),
-                FontSize = 12,
-                Foreground = Theme.Brush("TextFaint"),
-                Margin = new Thickness(2, 2, 0, 4),
-            });
-            return;
-        }
-        foreach (var vm in tasks)
-        {
-            var row = new Border
-            {
-                Background = Theme.Brush("Surface2"),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(9, 6, 9, 6),
-                Margin = new Thickness(0, 0, 0, 5),
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Opacity = vm.IsDone ? 0.62 : 1,
-                Child = new StackPanel
-                {
-                    Children =
-                    {
-                        new TextBlock
-                        {
-                            Text = vm.Text,
-                            FontSize = 12.5,
-                            FontWeight = FontWeights.Medium,
-                            Foreground = Theme.Brush("TextBody"),
-                            TextTrimming = TextTrimming.CharacterEllipsis,
-                        },
-                        new TextBlock
-                        {
-                            Text = (vm.DueAt is DateTime du ? du.ToString("HH:mm") + " · " : "")
-                                   + Loc.F("MetaPriorityFmt", Loc.PriorityName(vm.Priority)),
-                            FontSize = 10.5,
-                            Foreground = Theme.Brush("TextFaint"),
-                            Margin = new Thickness(0, 2, 0, 0),
-                        },
-                    },
-                },
-            };
-            row.MouseLeftButtonUp += (_, e) =>
-            {
-                e.Handled = true;
-                OpenDetail(vm);
-            };
-            CalTaskList.Children.Add(row);
-        }
-    }
 
     // ---------- 一键展开 / 收起 ----------
 
@@ -1254,12 +860,13 @@ public partial class MainWindow : Window
         {
             Detach(d);
             Attachments.DeleteAll(d.Id);
-            _notified.Remove(d.Id);
         }
         if (vm.Parent != null)
             vm.Parent.Children.Remove(vm);   // 触发父级 Mutated → 保存
         else
             _all.Remove(vm);
+        if (_inlineVm != null && vm.Flatten().Contains(_inlineVm))
+            _inlineVm = null;
         Save();
         UpdateStats();
         if (vm.Parent == null) ApplyFilter();
@@ -1322,7 +929,6 @@ public partial class MainWindow : Window
         _dirty = true;
         _saveDebounce.Stop();
         _saveDebounce.Start(); // 静默 400ms 才真正写盘，连续改动合并为一次
-        if (_calMode) BuildCalendar(); // 增删/完成/改期即时反映到日历
     }
 
     /// <summary>立即把未落盘改动写盘（退出/备份/导入前调用）。快照在 UI 线程拍，文件 IO 串行放后台</summary>
@@ -1376,69 +982,6 @@ public partial class MainWindow : Window
         return null;
     }
 
-    // ---------- 到期提醒 ----------
-
-    void CheckReminders()
-    {
-        foreach (var vm in _all.SelectMany(v => v.Flatten()).ToList())
-        {
-            vm.RefreshDue();
-            if (vm.IsDone || !vm.Remind || vm.DueAt is not DateTime due) continue;
-            if (due <= DateTime.Now && !_notified.Contains(vm.Id))
-            {
-                _notified.Add(vm.Id);
-                ShowBanner(vm);
-            }
-        }
-    }
-
-    void ShowBanner(TodoViewModel vm)
-    {
-        _bannerVm = vm;
-        _bannerGen++;
-        var msg = Loc.F("OverdueBannerFmt", vm.Text);
-
-        if (!IsVisible)
-        {
-            _tray?.ShowBalloonTip(4000, Loc.Get("ReminderBannerTitle"), msg, System.Windows.Forms.ToolTipIcon.Info);
-            return;
-        }
-
-        BannerMsg.Text = msg;
-        BannerHost.Visibility = Visibility.Visible;
-
-        var slide = new DoubleAnimation(-70, 0, TimeSpan.FromMilliseconds(300))
-        {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(300));
-        BannerShift.BeginAnimation(TranslateTransform.YProperty, slide);
-        BannerCard.BeginAnimation(UIElement.OpacityProperty, fade);
-        _bannerTimer.Stop();
-        _bannerTimer.Start();
-    }
-
-    void HideBanner()
-    {
-        _bannerTimer.Stop();
-        _bannerGen++;
-        var gen = _bannerGen;
-        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(220));
-        fade.Completed += (_, _) =>
-        {
-            if (gen == _bannerGen) // 期间若弹出新横幅则不动
-                BannerHost.Visibility = Visibility.Collapsed;
-        };
-        BannerCard.BeginAnimation(UIElement.OpacityProperty, fade);
-    }
-
-    void BannerViewBtn_Click(object sender, RoutedEventArgs e)
-    {
-        HideBanner();
-        if (_bannerVm is { } vm) OpenDetail(vm);
-    }
-
-    void BannerCloseBtn_Click(object sender, RoutedEventArgs e) => HideBanner();
 
     // ---------- 托盘 ----------
 
@@ -1611,7 +1154,6 @@ public partial class MainWindow : Window
         else Hide();
         // 热键呼出意味着用户要立刻用工具，浮层不应挡着
         if (SettingsOverlay.Visibility == Visibility.Visible) CloseSettings();
-        if (DetailOverlay.Visibility == Visibility.Visible) CloseDetail();
     }
 
     void InitHotkeyBoxes()
@@ -1809,48 +1351,17 @@ public partial class MainWindow : Window
         NewDetailsLabelTb.Text = Loc.Get("DetailsLabel");
         NewInsertImageBtn.Content = Loc.Get("InsertImage");
         NewPreviewBtn.Content = Loc.Get(_newPreviewOn ? "Edit" : "Preview");
-        NewDueLabelTb.Text = Loc.Get("DueLabel");
-        NewNoDueBtn.Content = Loc.Get("NoDeadline");
-        NewRemindTextTb.Text = Loc.Get("RemindText");
         NewPriorityLabelTb.Text = Loc.Get("PriorityLabel");
         NewP0.Content = Loc.PriorityName(0);
         NewP1.Content = Loc.PriorityName(1);
         NewP2.Content = Loc.PriorityName(2);
         NewP3.Content = Loc.PriorityName(3);
-        NewSubHintTb.Text = Loc.Get("AddSubtaskPlaceholder");
-        UpdateNewSubsLabel();
         EmptyTitleTb.Text = Loc.Get("EmptyTitle");
         EmptyHintTb.Text = Loc.Get("EmptyHint");
         EmptyHint2Tb.Text = Loc.Get("EmptyHint2");
         ClearDoneBtn.Content = Loc.Get("ClearDone");
-        CalendarViewBtn.Content = _calMode ? Loc.Get("FilterAll") : Loc.Get("CalView");
-        CalTodayBtn.Content = Loc.Get("CalToday");
-        if (_calMode) { CalWeekHeader.Children.Clear(); BuildCalendar(); }
         MinBtn.ToolTip = Loc.Get("Minimize");
-        BannerTitleTb.Text = Loc.Get("ReminderBannerTitle");
-        BannerViewBtn.Content = Loc.Get("View");
         SettingsBtn.ToolTip = Loc.Get("SettingsTip");
-
-        // 详情浮层
-        DetailTitleTb.Text = Loc.Get("DetailTitle");
-        DetailsLabelTb.Text = Loc.Get("DetailsLabel");
-        InsertImageBtn.Content = Loc.Get("InsertImage");
-        ImportMdBtn.Content = Loc.Get("ImportMd");
-        PreviewBtn.Content = Loc.Get(_notesPreviewOn ? "Edit" : "Preview");
-        DueLabelTb.Text = Loc.Get("DueLabel");
-        NoDeadlineBtn.Content = Loc.Get("NoDeadline");
-        RemindLabelTb.Text = Loc.Get("RemindLabel");
-        RemindTextTb.Text = Loc.Get("RemindText");
-        RemindHintTb.Text = Loc.Get("RemindHint");
-        PriorityLabelTb.Text = Loc.Get("PriorityLabel");
-        DetailP0.Content = Loc.PriorityName(0);
-        DetailP1.Content = Loc.PriorityName(1);
-        DetailP2.Content = Loc.PriorityName(2);
-        DetailP3.Content = Loc.PriorityName(3);
-        SubtasksLabelTb.Text = Loc.Get("SubtasksLabel");
-        AddSubHintTb.Text = Loc.Get("AddSubtaskPlaceholder");
-        DetailDeleteBtn.Content = Loc.Get("Delete");
-        DetailDoneBtn.Content = Loc.Get("Done");
 
         // 设置浮层
         SettingsTitleTb.Text = Loc.Get("SettingsTitle");
@@ -1879,9 +1390,7 @@ public partial class MainWindow : Window
         if (Loc.Lang == "en")
             DateText.Text = DateTime.Now.ToString("dddd, MMM d", System.Globalization.CultureInfo.InvariantCulture);
         else
-            DateText.Text = $"{DateTime.Now.Month}月{DateTime.Now.Day}日 · {DateTime.Now.ToString("dddd", new System.Globalization.CultureInfo("zh-CN"))}";
-        DueDatePicker.RefreshLocale();
-        NewDatePicker.RefreshLocale();
+        DateText.Text = $"{DateTime.Now.Month}月{DateTime.Now.Day}日 · {DateTime.Now.ToString("dddd", new System.Globalization.CultureInfo("zh-CN"))}";
 
         // 托盘菜单文本（重建）
         if (_tray != null)
@@ -1900,17 +1409,6 @@ public partial class MainWindow : Window
         UpdateCloseTooltip();
         UpdateHotkeyPill();
         UpdateStats();
-        // 预览开着时切语言：用新语言重渲染
-        if (_detailVm != null)
-        {
-            DetailMetaText.Text = Loc.F("CreatedAtFmt", _detailVm.CreatedText);
-            SubtasksLabelTb.Text = $"{Loc.Get("SubtasksLabel")} {_detailVm.Children.Count}";
-            BreadcrumbTb.Text = _detailVm.Parent == null ? "" : Loc.F("BreadcrumbFmt", _detailVm.Breadcrumb);
-            if (_notesPreviewOn)
-            {
-                MarkdownLite.Render(NotesPreviewPanel, _detailVm.Details, name => Attachments.GetPath(_detailVm.Id, name));
-            }
-        }
     }
 
     // ---------- 设置浮层 ----------
@@ -2060,6 +1558,7 @@ public partial class MainWindow : Window
             ShowTrayWarning(Loc.Get("ImportFailed") + " · " + dlg.FileName);
         }
     }
+
 
     // ---------- 窗口按钮 ----------
 

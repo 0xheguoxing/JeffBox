@@ -40,3 +40,23 @@ public class NullToCollapsedConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }
+
+/// <summary>集合元素数 > 0 → Visible（标签等非空才显示）</summary>
+public class TagCountToVisConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        value is System.Collections.ICollection c && c.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>Priority 与 RadioButton 参数相等 → 选中（内联详情优先级分段）</summary>
+public class PriorityEqualsConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        System.Convert.ToInt32(value) == int.Parse((string)parameter, culture);
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        value is true ? int.Parse((string)parameter, culture) : System.Windows.Data.Binding.DoNothing;
+}

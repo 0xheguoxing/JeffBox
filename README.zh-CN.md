@@ -2,7 +2,7 @@
 
 # JeffBox
 
-> 一个约 430KB 的单文件 Windows 桌面待办应用 —— 任务树、优先级、截止时间与到点提醒。
+> 一个约 430KB 的单文件 Windows 桌面待办应用 —— 任务树、优先级、标签与 Markdown 详情。
 
 ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![WPF](https://img.shields.io/badge/UI-WPF%20%2B%20Fluent-0078D4) ![License](https://img.shields.io/badge/License-Apache--2.0-blue) ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6) ![Dependencies](https://img.shields.io/badge/dependencies-zero-green)
 
@@ -21,9 +21,8 @@
 ### ✅ 待办 Todo
 
 - 任务树：子任务无限嵌套，默认展开，一键全部展开/收起
-- 优先级（无/低/中/高，列表彩条标识）、截止时间、到点提醒（应用内横幅）
-- 截止日期日历视图，支持今天/周导航
-- 详情支持 Markdown-lite，可直接 `Ctrl+V` 粘贴图片（自动检测剪贴板空白图并提示）
+- 优先级（无/低/中/高，列表彩条标识）与多标签（卡片直接展示，详情内编辑）
+- 详情支持 Markdown-lite，可直接 `Ctrl+V` 粘贴图片（自动检测剪贴板空白图并提示），编辑 ⇄ 预览同屏切换
 - 筛选（全部/待办/已完成）、显示完成进度、悬停卡片预览
 
 ### 全局能力
@@ -86,7 +85,6 @@ JeffBox/
 │   ├── Attachments.cs        # 待办图片附件（防路径逃逸、孤儿清理）
 │   └── DataBackup.cs         # 全量数据 zip 导出 / 导入
 └── Views/
-    ├── DateField.*           # 日期选择控件（截止时间）
     ├── HotkeyBox.*           # 可复用热键捕获框（低级键盘钩子）
     └── ThemeDialog.cs        # 应用内主题化对话框
 ```

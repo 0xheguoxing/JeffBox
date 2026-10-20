@@ -19,11 +19,11 @@ public class TodoItem
     public string Details { get; set; } = "";
     public bool IsDone { get; set; }
     public int Priority { get; set; }
-    public DateTime? DueAt { get; set; }
-    public bool Remind { get; set; }
     public List<TodoItem> Children { get; set; } = new();
     public DateTime CreatedAt { get; set; } = DateTime.Now;
-    public DateTime? CompletedAt { get; set; }
+
+    /// <summary>标签（根任务用；null 序列化时忽略）</summary>
+    public List<string>? Tags { get; set; }
 
     /// <summary>旧版数据，加载迁移后置 null（序列化时忽略）</summary>
     public List<SubTask>? SubTasks { get; set; }

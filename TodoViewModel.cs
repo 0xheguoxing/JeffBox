@@ -46,6 +46,25 @@ public partial class TodoViewModel : INotifyPropertyChanged
             item.Children.Select(c => new TodoViewModel(c, this, level + 1)));
         foreach (var c in Children) HookChild(c);
         Children.CollectionChanged += Children_CollectionChanged;
+        ReloadTags();
+    }
+
+    // ---------- 标签 ----------
+
+    /// <summary>标签集合（供卡片绑定；数据源是 Item.Tags，改动走 ReloadTags 通知）</summary>
+    public ObservableCollection<string> Tags { get; } = new();
+
+    public bool HasTags => Tags.Count > 0;
+
+    /// <summary>以 Item.Tags 为准刷新绑定集合，并通知卡片/详情刷新</summary>
+    public void ReloadTags()
+    {
+        Tags.Clear();
+        if (Item.Tags != null)
+            foreach (var t in Item.Tags)
+                Tags.Add(t);
+        OnPropertyChanged(nameof(Tags));
+        OnPropertyChanged(nameof(HasTags));
     }
 
     // ---------- 子级管理 ----------
@@ -188,9 +207,7 @@ public partial class TodoViewModel : INotifyPropertyChanged
         {
             if (Item.IsDone == value) return;
             Item.IsDone = value;
-            Item.CompletedAt = value ? DateTime.Now : null;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(IsOverdue));
         }
     }
 
@@ -198,28 +215,6 @@ public partial class TodoViewModel : INotifyPropertyChanged
     {
         get => Item.Priority;
         set { if (Item.Priority != value) { Item.Priority = value; OnPropertyChanged(); OnPropertyChanged(nameof(PreviewMeta)); } }
-    }
-
-    public DateTime? DueAt
-    {
-        get => Item.DueAt;
-        set
-        {
-            if (Item.DueAt != value)
-            {
-                Item.DueAt = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(DueText));
-                OnPropertyChanged(nameof(IsOverdue));
-                OnPropertyChanged(nameof(PreviewMeta));
-            }
-        }
-    }
-
-    public bool Remind
-    {
-        get => Item.Remind;
-        set { if (Item.Remind != value) { Item.Remind = value; OnPropertyChanged(); OnPropertyChanged(nameof(PreviewMeta)); } }
     }
 
     // ---------- 派生文案 ----------
@@ -236,42 +231,21 @@ public partial class TodoViewModel : INotifyPropertyChanged
         set { if (_isExpanded != value) { _isExpanded = value; OnPropertyChanged(); } }
     }
 
-    public string DueText
+    /// <summary>内联详情编辑区是否展开（点卡片/下拉按钮切换，同一时间只开一个）</summary>
+    public bool IsDetailOpen
     {
-        get
-        {
-            if (Item.DueAt is not { } d) return "";
-            if (d.Date == DateTime.Today) return Loc.F("DueTodayFmt", d.ToString("HH:mm"));
-            if (d.Date == DateTime.Today.AddDays(1)) return Loc.F("DueTomorrowFmt", d.ToString("HH:mm"));
-            return Loc.Lang == "en"
-                ? d.ToString("MMM d HH:mm", System.Globalization.CultureInfo.InvariantCulture)
-                : d.ToString("M月d日 HH:mm");
-        }
+        get => _isDetailOpen;
+        set { if (_isDetailOpen != value) { _isDetailOpen = value; OnPropertyChanged(); } }
     }
+    bool _isDetailOpen;
 
-    public bool IsOverdue => !IsDone && Item.DueAt is { } d && d < DateTime.Now;
-
-    string _dueTextSnapshot = "";
-    bool _overdueSnapshot;
-
-    /// <summary>定时刷新相对文案（跨零点、到点变红）——递归刷新全树</summary>
-    public void RefreshDue()
-    {
-        foreach (var vm in Flatten())
-        {
-            if (vm._dueTextSnapshot != vm.DueText) { vm._dueTextSnapshot = vm.DueText; vm.OnPropertyChanged(nameof(DueText)); }
-            if (vm._overdueSnapshot != vm.IsOverdue) { vm._overdueSnapshot = vm.IsOverdue; vm.OnPropertyChanged(nameof(IsOverdue)); }
-        }
-    }
 
     /// <summary>语言切换后刷新本地化派生文案——递归刷新全树</summary>
     public void RefreshLocale()
     {
         foreach (var vm in Flatten())
         {
-            vm._dueTextSnapshot = "";
             vm._firstImage = null;
-            vm.OnPropertyChanged(nameof(DueText));
             vm.OnPropertyChanged(nameof(SubProgress));
             vm.OnPropertyChanged(nameof(PreviewDetails));
             vm.OnPropertyChanged(nameof(PreviewMeta));
@@ -297,9 +271,7 @@ public partial class TodoViewModel : INotifyPropertyChanged
         {
             var parts = new List<string>();
             if (Priority > 0) parts.Add(Loc.F("MetaPriorityFmt", Loc.PriorityName(Priority)));
-            if (Item.DueAt is { }) parts.Add(Loc.F("MetaDueFmt", DueText));
             if (HasSubs) parts.Add(SubProgress);
-            if (Remind) parts.Add(Loc.Get("MetaRemindOn"));
             var imgs = ImageRef().Matches(Details).Count;
             if (imgs > 0) parts.Add(Loc.F("MetaImagesFmt", imgs));
             parts.Add(Loc.F("MetaCreatedFmt", CreatedText));

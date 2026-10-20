@@ -2,7 +2,7 @@
 
 **[中文说明](README.zh-CN.md)**
 
-> A ~430 KB single-file Windows desktop todo app — task tree, priorities, due dates & reminders.
+> A ~430 KB single-file Windows desktop todo app — task tree, priorities, tags & markdown details.
 
 ![License](https://img.shields.io/badge/License-Apache--2.0-blue)
 
@@ -21,9 +21,8 @@
 ### ✅ Todo
 
 - Task tree: unlimited nesting of subtasks, expanded by default, collapse/expand-all in one click
-- Priority (none/low/med/high with color bars), due dates, in-app reminders
-- Calendar view for due dates, with today/week navigation
-- Markdown-lite details with `Ctrl+V` image paste (blank-clipboard detection included)
+- Priority (none/low/med/high with color bars) and multiple tags per task
+- Markdown-lite details with `Ctrl+V` image paste (blank-clipboard detection included), edit ⇄ preview inline
 - Filters (all/active/done), progress display, hover card preview
 
 ### Global
@@ -86,7 +85,6 @@ JeffBox/
 │   ├── Attachments.cs        # todo image attachments (path-traversal guard)
 │   └── DataBackup.cs         # full-data zip export / import
 └── Views/
-    ├── DateField.*           # date picker field (due dates)
     ├── HotkeyBox.*           # reusable hotkey capture box (low-level keyboard hook)
     └── ThemeDialog.cs        # themed in-app dialogs
 ```
